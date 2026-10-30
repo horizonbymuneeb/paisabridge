@@ -6,6 +6,7 @@
 package unique
 
 import (
+	"encoding/binary"
 	"hash/fnv"
 	"math"
 )
@@ -49,10 +50,18 @@ func Pick(price int64, currency string, taken map[int64]bool) (int64, bool) {
 		max = 9 * step
 	}
 
-	// Deterministic start offset keeps the sequence stable across restarts.
+	// Skip zero: an amount equal to the list price carries no signal, and two
+	// orders at the same price would both sit there until a collision forces
+	// one of them away. Starting non-zero means every order carries a distinct
+	// fingerprint from the first one, which is what the matching engine relies
+	// on. The start is derived deterministically from the price so restarts
+	// stay stable.
 	h := fnv.New32a()
 	h.Write([]byte(currency))
-	base := int64(h.Sum32()) % (max + 1)
+	var b [8]byte
+	binary.LittleEndian.PutUint64(b[:], uint64(price))
+	h.Write(b[:])
+	base := int64(h.Sum32())%(max) + 1
 
 	// Prefer adding small offsets, then subtracting.
 	// Adding is tried first so the seller never collects less than the list

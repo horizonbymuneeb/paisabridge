@@ -1,6 +1,6 @@
 # API reference
 
-Base URL: whatever `PB_BASE_URL` is set to. All bodies are JSON, all amounts
+Base URL: whatever `PB_PUBLIC_URL` points at (or your reverse proxy host). All bodies are JSON, all amounts
 are integer minor units (`paisa` for PKR: 1 PKR = 100; micro-USDT for USDT:
 1 USDT = 1,000,000). Timestamps are RFC 3339 UTC.
 
@@ -99,7 +99,7 @@ failed signature is `401` and is logged, nothing is mutated.
 
 **Unsigned rails** (bank e-mail/SMS parser, bare USDT watcher without chain
 confirmation): a shared secret must be presented as `X-Webhook-Signature`
-(HMAC-SHA256 hex of the raw body with `PB_WEBHOOK_SECRET`), and even then a
+(HMAC-SHA256 hex of the raw body with that rail's relay secret, e.g. `PB_BANK_RELAY_SECRET`), and even then a
 match only moves the order to `review` - never straight to `fulfilled`.
 
 Success `200`:

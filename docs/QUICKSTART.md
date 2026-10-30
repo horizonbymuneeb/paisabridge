@@ -54,9 +54,10 @@ curl -s -X POST localhost:8080/api/orders \
 }
 ```
 
-The buyer must send **`amount_minor`**, not `catalog_price_minor`. Show the paid
-amount in your checkout UI; the difference is at most 9 PKR and exists so two
-open orders never share an amount.
+The buyer must send **`amount_minor`**, not `catalog_price_minor`. The two differ
+by a deterministic offset of at most Rs 9 in either direction, so every open
+order owns a distinct amount and an inbound payment can be matched without the
+buyer typing a reference. Show the paid amount in your checkout UI.
 
 ## 4. Point your alert relay at the webhook
 

@@ -8,7 +8,7 @@ amount-unique order matching, a Telegram bot and a wallet ledger.
 MIT licensed. Single Go binary. SQLite by default, no SaaS dependency.
 
 ```
-order created  ->  unique amount (Rs 1499 -> Rs 1497)
+order created  ->  unique amount (Rs 1499 -> Rs 1507, within +-Rs 9)
                ->  buyer pays with any rail
                ->  signed webhook / notice feed
                ->  matcher resolves exactly one order
@@ -31,9 +31,9 @@ cd paisabridge
 CGO_ENABLED=1 go build ./cmd/paisabridge
 
 export PB_DB=./paisabridge.db
-export PB_ADMIN_TOKEN=$(openssl rand -hex 24)
-export PB_WEBHOOK_SECRET=$(openssl rand -hex 32)
-export PB_BASE_URL=http://localhost:8080
+export PB_ADMIN_TOKEN="$(openssl rand -hex 24)"
+export PB_BANK_RELAY_SECRET="$(openssl rand -hex 32)"
+export PB_PUBLIC_URL=http://localhost:8080
 ./paisabridge
 ```
 
@@ -47,8 +47,15 @@ curl -s -X POST localhost:8080/api/orders \
        "customer_phone":"tg:123456789"}'
 ```
 
-The response carries both `catalog_price_minor` and the unique
-`amount_minor` the buyer must send.
+The response carries both `catalog_price_minor` and the unique `amount_minor`
+the buyer must send. Verify a payment with the bundled CLI:
+
+```bash
+go build -o pbsend ./cmd/pbsend
+./pbsend -url http://localhost:8080/api/webhooks/bank \
+         -secret "$PB_BANK_RELAY_SECRET" -amount 149700 -txn IBFT-001 \
+         -note "Rs 1497.00 has been credited to A/C 12345678901234 from Ali Raza"
+```
 
 ## Documentation
 

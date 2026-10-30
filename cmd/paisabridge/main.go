@@ -31,6 +31,7 @@ import (
 	"github.com/horizonbymuneeb/paisabridge/internal/adapter"
 	"github.com/horizonbymuneeb/paisabridge/internal/adapters/registry"
 	"github.com/horizonbymuneeb/paisabridge/internal/api"
+	"github.com/horizonbymuneeb/paisabridge/internal/bot"
 	"github.com/horizonbymuneeb/paisabridge/internal/config"
 	"github.com/horizonbymuneeb/paisabridge/internal/match"
 	"github.com/horizonbymuneeb/paisabridge/internal/store"
@@ -121,6 +122,27 @@ func run() error {
 		close(sweepDone)
 	}
 
+	// --- telegram bot --------------------------------------------------
+	// Long polling: no public URL and no webhook registration needed. The bot
+	// is optional; without a token the gateway runs headless.
+	if cfg.TelegramToken != "" {
+		tgBot, err := bot.New(bot.Config{
+			Token:       cfg.TelegramToken,
+			APIBase:     cfg.TelegramAPIBase,
+			CheckoutURL: cfg.PublicURL + "/checkout",
+		}, botStore{st: st, w: w})
+		if err != nil {
+			logger.Warn("telegram bot disabled", "err", err)
+		} else {
+			go func() {
+				logger.Info("telegram bot polling")
+				if err := tgBot.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error("telegram bot stopped", "err", err)
+				}
+			}()
+		}
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", cfg.Addr, "dev_mode", cfg.DevMode,
@@ -191,6 +213,21 @@ func buildRegistry(cfg *config.Config, st *store.Store, logger *slog.Logger) (*r
 	} else {
 		return nil, fmt.Errorf("registry: %w", err)
 	}
+}
+
+// botStore adapts *store.Store + *wallet.Ledger to bot.Store. The bot package
+// takes interfaces on purpose so it can be tested without a database.
+type botStore struct {
+	st *store.Store
+	w  *wallet.Wallet
+}
+
+func (b botStore) Order(ctx context.Context, id string) (*types.Order, error) {
+	return b.st.Order(ctx, id)
+}
+
+func (b botStore) WalletBalance(ctx context.Context, userID string) (int64, error) {
+	return b.w.AvailableMinor(ctx, userID)
 }
 
 // lookupFunc adapts registry.Registry to api.AdapterLookup. The API package

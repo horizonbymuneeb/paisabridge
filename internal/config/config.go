@@ -45,6 +45,13 @@ type Config struct {
 	// PublicURL is used in generated links (checkout deep links).
 	PublicURL string
 
+	// TelegramToken enables the customer-facing bot when non-empty.
+	TelegramToken string
+
+	// TelegramAPIBase overrides the Bot API origin. Empty means the public
+	// api.telegram.org; a local relay or a test double sets it.
+	TelegramAPIBase string
+
 	// Rail credentials, consumed by internal/adapters/registry. Empty values
 	// keep a rail unregistered (the webhook route then answers no_adapter).
 	EasypaisaSecret      string
@@ -72,16 +79,18 @@ type Config struct {
 // is a deployment bug worth failing loudly on.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Addr:           env("PB_ADDR", ":8080"),
-		DBPath:         env("PB_DB", "paisabridge.db"),
-		AdminToken:     os.Getenv("PB_ADMIN_TOKEN"),
-		DevMode:        envBool("PB_DEV", false),
-		OrderTTL:       envDur("PB_ORDER_TTL", 30*time.Minute),
-		SweepInterval:  envDur("PB_SWEEP_INTERVAL", time.Minute),
-		DiscountBPS:    envInt("PB_DISCOUNT_BPS", 500),
-		WalletCurrency: env("PB_WALLET_CURRENCY", "PKR"),
-		WebhookSecrets: map[string]string{},
-		PublicURL:      env("PB_PUBLIC_URL", "http://localhost:8080"),
+		Addr:            env("PB_ADDR", ":8080"),
+		DBPath:          env("PB_DB", "paisabridge.db"),
+		AdminToken:      os.Getenv("PB_ADMIN_TOKEN"),
+		DevMode:         envBool("PB_DEV", false),
+		OrderTTL:        envDur("PB_ORDER_TTL", 30*time.Minute),
+		SweepInterval:   envDur("PB_SWEEP_INTERVAL", time.Minute),
+		DiscountBPS:     envInt("PB_DISCOUNT_BPS", 500),
+		WalletCurrency:  env("PB_WALLET_CURRENCY", "PKR"),
+		WebhookSecrets:  map[string]string{},
+		PublicURL:       env("PB_PUBLIC_URL", "http://localhost:8080"),
+		TelegramToken:   env("PB_TELEGRAM_TOKEN", ""),
+		TelegramAPIBase: env("PB_TELEGRAM_API_BASE", ""),
 
 		EasypaisaSecret:      os.Getenv("PB_EASYPAISA_SECRET"),
 		JazzCashSalt:         os.Getenv("PB_JAZZCASH_SALT"),

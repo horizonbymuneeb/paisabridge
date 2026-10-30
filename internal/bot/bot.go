@@ -6,7 +6,7 @@
 //
 // Flow:
 //
-//	/start   -> greeting + "Payment karein" button that deep-links to checkout
+//	/start   -> greeting with a link to the checkout page
 //	/order X -> live status of order X
 //	/wallet  -> wallet balance
 //	webhook  -> TellWebhook(order) pushes a status change notification
@@ -148,7 +148,7 @@ func (b *Bot) handle(ctx context.Context, m *Message) {
 	text := strings.TrimSpace(m.Text)
 	switch {
 	case strings.HasPrefix(text, "/start"):
-		b.reply(ctx, chatID, "Welcome to paisabridge!\nOrder create karein: "+b.cfg.CheckoutURL+"\nStatus dekhne ke liye: <code>/order PB-XXXXXX</code>")
+		b.reply(ctx, chatID, "Welcome to paisabridge.\nCheckout: "+b.cfg.CheckoutURL+"\nOrder status: <code>/order PB-XXXXXX</code>")
 	case strings.HasPrefix(text, "/order"):
 		ref := strings.TrimSpace(strings.TrimPrefix(text, "/order"))
 		if ref == "" {
@@ -157,7 +157,7 @@ func (b *Bot) handle(ctx context.Context, m *Message) {
 		}
 		o, err := b.store.Order(ctx, ref)
 		if err != nil {
-			b.reply(ctx, chatID, "Order nahi mila.")
+			b.reply(ctx, chatID, "Order not found.")
 			return
 		}
 		b.reply(ctx, chatID, fmt.Sprintf("<b>%s</b>\nProduct: %s\nAmount: %d %s\nStatus: <code>%s</code>",
@@ -165,7 +165,7 @@ func (b *Bot) handle(ctx context.Context, m *Message) {
 	case strings.HasPrefix(text, "/wallet"):
 		bal, err := b.store.WalletBalance(ctx, fmt.Sprintf("tg:%d", chatID))
 		if err != nil {
-			b.reply(ctx, chatID, "Wallet error.")
+			b.reply(ctx, chatID, "Wallet unavailable, try again.")
 			return
 		}
 		b.reply(ctx, chatID, fmt.Sprintf("Wallet: %d PKR", bal))

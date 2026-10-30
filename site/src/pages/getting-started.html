@@ -1,0 +1,130 @@
+---
+title: Getting started
+desc: Clone, configure and take a first payment with paisabridge in about fifteen minutes.
+nav: start
+start_href: getting-started.html
+out: getting-started.html
+---
+<div class="doc wrap">
+  <aside>
+    <div class="grp">
+      <p class="lbl">Get started</p>
+      <a href="#install">Install</a>
+      <a href="#configure">Configure</a>
+      <a href="#order">Create an order</a>
+      <a href="#verify">Verify a payment</a>
+      <a href="#deliver">Deliver</a>
+      <a href="#wallet">Wallet payments</a>
+      <a href="#next">Next steps</a>
+    </div>
+    <div class="grp">
+      <p class="lbl">Also</p>
+      <a href="webhooks.html">Webhook setup</a>
+      <a href="admin-console.html">Operator console</a>
+      <a href="api.html">API reference</a>
+    </div>
+  </aside>
+
+  <article>
+    <h1>Getting started</h1>
+    <p class="lede-2">
+      Fifteen minutes from a clean machine to a fulfilled order, using the bank rail so
+      no provider onboarding is needed.
+    </p>
+
+    <h2 id="install">1. Install</h2>
+    <pre><code>go install github.com/horizonbymuneeb/paisabridge/cmd/paisabridge@v0.1.0</code></pre>
+    <p>Or from source:</p>
+    <pre><code>git clone https://github.com/horizonbymuneeb/paisabridge
+cd paisabridge
+make build          # CGO_ENABLED=1 go build ./cmd/paisabridge</code></pre>
+    <p class="caption">Go 1.22+ and a C toolchain (the SQLite driver uses cgo; on Debian: <code>apt install build-essential</code>).</p>
+
+    <h2 id="configure">2. Configure</h2>
+    <pre><code>export PB_DB=./paisabridge.db
+export PB_ADMIN_TOKEN="$(openssl rand -hex 24)"
+export PB_BANK_RELAY_SECRET="$(openssl rand -hex 32)"
+export PB_PUBLIC_URL=http://localhost:8080
+export PB_ADMIN_ADDR=127.0.0.1:8081     # operator console, separate listener
+./paisabridge</code></pre>
+    <p>Expected log:</p>
+    <pre><code>level=INFO msg="database ready" path=./paisabridge.db
+level=INFO msg="rail easypaisa disabled: EasypaisaSecret not set"
+level=INFO msg="rail jazzcash disabled: JazzCashSalt not set"
+level=INFO msg="listening" addr=:8080 dev_mode=false methods=bank
+level=INFO msg="admin console listening" addr=127.0.0.1:8081</code></pre>
+    <div class="note">
+      <strong>Rails you did not configure are skipped</strong>
+      <p>
+        A rail with no secret is simply not offered, and its webhook answers
+        <code>no_adapter</code>. Booting does not depend on configuring rails you do not
+        sell.
+      </p>
+    </div>
+
+    <h2 id="order">3. Create an order</h2>
+    <pre><code>curl -s -X POST localhost:8080/api/orders \
+  -H 'content-type: application/json' \
+  -d '{"product_id":"chatgpt-plus","product_name":"ChatGPT Plus 1m",
+       "catalog_price_minor":149900,"currency":"PKR","method":"bank"}'</code></pre>
+    <pre><code>{
+  "id": "ord_eb5f4d39f0ab410dc4",
+  "ref": "ref_661a75903e39870351",
+  "catalog_price_minor": 149900,
+  "amount_minor": 150700,
+  "currency": "PKR",
+  "method": "bank",
+  "status": "pending_payment",
+  "expires_at": "2026-10-31T08:45:00Z"
+}</code></pre>
+    <div class="note warn">
+      <strong>The buyer sends <code>amount_minor</code>, not the list price</strong>
+      <p>
+        The two differ by a bounded offset of at most Rs 9, in either direction. That
+        offset is what makes the payment identifiable without the buyer typing a
+        reference. Always show the payable amount in your checkout UI.
+      </p>
+    </div>
+
+    <h2 id="verify">4. Verify a payment</h2>
+    <pre><code>go build -o pbsend ./cmd/pbsend
+
+./pbsend -url http://localhost:8080/api/webhooks/bank \
+         -secret "$PB_BANK_RELAY_SECRET" -method bank \
+         -amount 150700 -txn IBFT-001 \
+         -note "Rs 1507.00 has been credited to A/C 12345678901234 from Ali Raza"</code></pre>
+    <pre><code>HTTP 200
+{"matched":true,"order_id":"ord_eb5f4d39f0ab410dc4","reason":"matched","credited":true}</code></pre>
+    <p>The order is now <code>fulfilled</code>. Re-send the same notice and it is refused:</p>
+    <pre><code>HTTP 401
+{"error":"invalid_signature","detail":"... notice: replayed envelope id"}</code></pre>
+
+    <h2 id="deliver">5. Tell your storefront</h2>
+    <p>Pick one of three channels; most deployments use the webhook plus the bot.</p>
+    <table>
+      <thead><tr><th>Channel</th><th>Setup</th></tr></thead>
+      <tbody>
+        <tr><td>Poll</td><td><code>GET /api/orders/{id}</code></td></tr>
+        <tr><td>Outbound webhook</td><td><code>PB_OUTBOUND_WEBHOOK_URL</code> + <code>PB_OUTBOUND_SECRET</code></td></tr>
+        <tr><td>Telegram bot</td><td><code>PB_TELEGRAM_TOKEN</code>; buyers use <code>/order &lt;ref&gt;</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="wallet">Wallet payments</h2>
+    <p>A wallet top-up settles instantly and earns the prepay discount (5% by default).</p>
+    <pre><code>curl -X POST localhost:8080/api/wallet/topup -H 'content-type: application/json' \
+  -d '{"user_id":"tg:123456789","amount_minor":500000,"idempotency_key":"topup-1"}'
+
+curl -X POST localhost:8080/api/orders/ord_.../claim \
+  -H 'content-type: application/json' -d '{"user_id":"tg:123456789"}'</code></pre>
+    <pre><code>{"order":{...},"price_minor":150000,"discount_minor":7500,"charged_minor":142500}</code></pre>
+
+    <h2 id="next">Next steps</h2>
+    <ul>
+      <li><a href="webhooks.html">Connect a real rail</a> — each one documented field by field.</li>
+      <li><a href="admin-console.html">Open the operator console</a> and approve a review order.</li>
+      <li><a href="operations.html">Deploy it</a> — systemd, TLS, backups, monitoring.</li>
+      <li><a href="api.html">API reference</a> — every endpoint and error code.</li>
+    </ul>
+  </article>
+</div>

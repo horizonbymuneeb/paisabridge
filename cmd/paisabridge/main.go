@@ -118,7 +118,10 @@ func run() error {
 	// --- outbound notifications ----------------------------------------
 	// The merchant side of the contract: every customer-visible transition is
 	// pushed to the integrator, signed, with a stable delivery id.
-	var notify func(context.Context, string, *types.Order)
+	var (
+		notify    func(context.Context, string, *types.Order)
+		redeliver func(context.Context, string) error
+	)
 	if cfg.OutboundURL != "" {
 		sender, err := outbound.New(outbound.Config{
 			URL:    cfg.OutboundURL,
@@ -128,11 +131,35 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("outbound: %w", err)
 		}
+		// Park deliveries that exhaust their retries instead of losing them: an
+		// order marked fulfilled must eventually reach the storefront even if
+		// the storefront was down for an hour.
+		sender.UseDeadLetter(deadLetterSink{st: st}, nil)
 		notify = func(ctx context.Context, event string, o *types.Order) {
 			deliveryID := event + ":" + o.ID + ":" + string(o.Status)
 			if err := sender.Notify(ctx, event, deliveryID, o); err != nil {
 				logger.Error("outbound delivery failed", "event", event, "order", o.ID, "err", err)
 			}
+		}
+		redeliver = func(ctx context.Context, id string) error {
+			row, err := st.DeadLetter(ctx, id)
+			if err != nil {
+				return err
+			}
+			out := &outbound.DeadLetter{
+				DeliveryID:  row.DeliveryID,
+				Event:       row.Event,
+				OrderID:     row.OrderID,
+				LastError:   row.LastError,
+				Attempts:    row.Attempts,
+				Body:        row.Body,
+				AttemptedAt: row.CreatedAt,
+			}
+			if err := sender.Redeliver(ctx, out); err != nil {
+				_ = st.FinishDeadLetter(ctx, id, false, err.Error(), time.Now().UTC())
+				return err
+			}
+			return st.FinishDeadLetter(ctx, id, true, "", time.Now().UTC())
 		}
 		logger.Info("outbound notifications enabled", "url", cfg.OutboundURL)
 	}
@@ -149,17 +176,18 @@ func run() error {
 	}
 
 	apiSrv, err := api.New(api.Config{
-		Store:          st,
-		Wallet:         w,
-		Matcher:        m,
-		Adapters:       lookupFunc(adaptersFrom(reg)),
-		AdminToken:     cfg.AdminToken,
-		OrderTTL:       cfg.OrderTTL,
-		Logger:         logger,
-		EnabledMethods: cfg.EnabledMethods,
-		Notify:         notify,
-		TrustProxy:     cfg.TrustProxy,
-		Metrics:        recorderFor(metricsReg),
+		Store:               st,
+		Wallet:              w,
+		Matcher:             m,
+		Adapters:            lookupFunc(adaptersFrom(reg)),
+		AdminToken:          cfg.AdminToken,
+		OrderTTL:            cfg.OrderTTL,
+		Logger:              logger,
+		EnabledMethods:      cfg.EnabledMethods,
+		Notify:              notify,
+		TrustProxy:          cfg.TrustProxy,
+		RedeliverDeadLetter: redeliver,
+		Metrics:             recorderFor(metricsReg),
 	})
 	if err != nil {
 		return err
@@ -394,6 +422,23 @@ func recorderFor(reg *metrics.Registry) api.Recorder {
 		return nil
 	}
 	return metricsRecorder{}
+}
+
+// deadLetterSink adapts store.Store to outbound.Sink. The two packages declare
+// their own DeadLetter types on purpose (the store must not import the delivery
+// code), so this shim owns the translation.
+type deadLetterSink struct{ st *store.Store }
+
+func (d deadLetterSink) Put(ctx context.Context, dl *outbound.DeadLetter) error {
+	return d.st.PutDeadLetter(ctx, &store.DeadLetter{
+		DeliveryID: dl.DeliveryID,
+		Event:      dl.Event,
+		OrderID:    dl.OrderID,
+		LastError:  dl.LastError,
+		Attempts:   dl.Attempts,
+		Body:       dl.Body,
+		CreatedAt:  dl.AttemptedAt,
+	})
 }
 
 // metricsRecorder adapts the internal/metrics handles to api.Recorder. It is a

@@ -1,0 +1,164 @@
+---
+title: Operator console
+desc: The server-rendered operator console for paisabridge - review queue, orders, order journal, unmatched payments, and how to bind it to a private address.
+nav: console
+console_href: admin-console.html
+out: admin-console.html
+---
+<div class="doc wrap">
+  <aside>
+    <div class="grp">
+      <p class="lbl">Console</p>
+      <a href="#why">Why a console</a>
+      <a href="#setup">Setup</a>
+      <a href="#dashboard">Dashboard</a>
+      <a href="#queue">Review queue</a>
+      <a href="#orders">Orders</a>
+      <a href="#detail">Order detail</a>
+      <a href="#notices">Unmatched payments</a>
+      <a href="#design">Design notes</a>
+    </div>
+    <div class="grp">
+      <p class="lbl">Also</p>
+      <a href="webhooks.html">Webhook setup</a>
+      <a href="api.html">API reference</a>
+    </div>
+  </aside>
+
+  <article>
+    <h1>Operator console</h1>
+    <p class="lede-2">
+      The bank rail parks payments in a review queue on purpose. That queue needs a
+      real screen — a human comparing a bank statement against a row should not be
+      editing JSON in a terminal at 2am.
+    </p>
+
+    <h2 id="why">Why it is server-rendered</h2>
+    <p>
+      No build step, no node_modules, no CDN, no JavaScript framework. The console is
+      <code>html/template</code> plus about 1,200 lines of hand-written CSS, which means
+      it starts in the same binary as the gateway and works on an air-gapped host. Every
+      glyph is an inline SVG symbol in a sprite: the page has zero external requests.
+    </p>
+
+    <h2 id="setup">Setup</h2>
+    <pre><code>export PB_ADMIN_TOKEN="$(openssl rand -hex 24)"
+export PB_ADMIN_ADDR="127.0.0.1:8081"
+./paisabridge</code></pre>
+    <p>
+      The console gets its <em>own listener</em> rather than a path on the payment port.
+      Bind it to loopback or a VPN interface and it is never reachable from the
+      internet; put it behind SSH forwarding when you need it remotely.
+    </p>
+    <div class="note">
+      <strong>Sign-in</strong>
+      <p>
+        The admin token is the only credential. A successful sign-in sets an
+        <code>HttpOnly</code>, <code>SameSite=Strict</code> cookie; actions additionally
+        carry a CSRF token. Behind plain HTTP the cookie would be dropped by the
+        browser, so the <code>Secure</code> flag is derived from
+        <code>PB_PUBLIC_URL</code> and can be overridden with
+        <code>PB_ADMIN_INSECURE_COOKIE</code> for a local run.
+      </p>
+    </div>
+    <figure>
+      <img src="media/admin-login.png" alt="Sign-in screen with a single token field." loading="lazy">
+      <figcaption>Sign-in — one field, no user accounts to manage.</figcaption>
+    </figure>
+
+    <h2 id="dashboard">Dashboard</h2>
+    <p>
+      Three figures answer the morning question: what arrived, what is internal, and
+      what is still open. Wallet-paid orders are counted separately because moving money
+      from a wallet is not new money at the door.
+    </p>
+    <figure>
+      <img src="media/admin-dashboard.png" alt="Dashboard with money in today, wallet-paid today, open order value, status counts, and a needs-a-decision panel listing the review queue and unmatched payments." loading="lazy">
+      <figcaption>
+        Money in today · wallet-paid today · open order value, then counts per status and
+        the two queues that need a human.
+      </figcaption>
+    </figure>
+
+    <h2 id="queue">Review queue</h2>
+    <p>
+      One row per parked payment: reference, status, amount in tabular figures, rail,
+      the transaction reference field, customer, and the countdown. Approve marks the
+      order paid and queues delivery; Reject cancels it. The optional tx-reference binds
+      the inbound transaction to the order so a later webhook for the same payment is
+      treated as a duplicate instead of a second credit.
+    </p>
+    <figure>
+      <img src="media/admin-queue.png" alt="Review queue with a single waiting order and Approve / Reject controls." loading="lazy">
+      <figcaption>Review queue — the amount is the unique payable amount, with the raw minor units underneath.</figcaption>
+    </figure>
+    <div class="shots">
+      <figure>
+        <img src="media/admin-order-detail.png" alt="Order detail page with amounts, rail, customer, payment window and the append-only journal of every transition." loading="lazy">
+        <figcaption>Order detail — the journal is the audit trail</figcaption>
+      </figure>
+      <figure>
+        <img src="media/admin-notices.png" alt="Unmatched payments page listing inbound notices with no order whose amount they match." loading="lazy">
+        <figcaption>Unmatched payments — reconcile against a statement</figcaption>
+      </figure>
+    </div>
+
+    <h2 id="orders">Orders</h2>
+    <p>
+      The newest 500 orders, newest first, with a status filter and free-text search
+      over ref, order id, transaction reference, product, e-mail, phone and OTP. Search
+      by transaction reference is the one that matters in practice: it is what a bank
+      statement shows.
+    </p>
+    <figure>
+      <img src="media/admin-orders.png" alt="Orders list showing dense rows with status, amount, rail, customer and payment window, plus search and status controls." loading="lazy">
+      <figcaption>Dense rows, hairline rules, monospace identifiers, right-aligned tabular amounts.</figcaption>
+    </figure>
+
+    <h2 id="detail">Order detail</h2>
+    <p>
+      Everything known about one order, including the append-only journal: who changed
+      what, when, and why. Manual decisions are never silent — an approval by a human is
+      a row with an actor and a note.
+    </p>
+
+    <h2 id="notices">Unmatched payments</h2>
+    <p>
+      Inbound payments that matched no open order: a typo'd amount, a late transfer, or
+      a payment for a cancelled order. These are the rows an operator reconciles by hand,
+      and the count is surfaced as a badge in the navigation so it is not discovered a
+      week later.
+    </p>
+
+    <h2 id="design">Design notes</h2>
+    <div class="grid three">
+      <div class="cell">
+        <span class="k">Density</span>
+        <p>13px body, 11px labels, 8px row padding. A console is scanned, not read.</p>
+      </div>
+      <div class="cell">
+        <span class="k">Figures</span>
+        <p>Amounts and identifiers are monospace with tabular figures, right-aligned, so columns line up and a trailing zero cannot hide.</p>
+      </div>
+      <div class="cell">
+        <span class="k">Colour</span>
+        <p>One accent, used for focus and links. Status is a dot plus a word, never colour alone.</p>
+      </div>
+    </div>
+    <p>
+      Verified with headless Chromium at 1440×900 and 390×844: zero horizontal overflow
+      on every screen, zero console errors, and the table collapses to stacked rows on a
+      phone rather than shrinking the type.
+    </p>
+    <div class="shots">
+      <figure>
+        <img src="media/admin-queue-mobile.png" alt="Review queue at 390 pixels wide, rows stacked with labels instead of a squeezed table." loading="lazy">
+        <figcaption>390px — the row becomes labelled blocks</figcaption>
+      </figure>
+      <figure>
+        <img src="media/admin-queue.png" alt="Review queue at desktop width." loading="lazy">
+        <figcaption>1440px — the same data as a table</figcaption>
+      </figure>
+    </div>
+  </article>
+</div>

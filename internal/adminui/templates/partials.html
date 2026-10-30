@@ -1,43 +1,45 @@
 {{/* Shared fragments. Everything here is presentation only: the handlers
      decide the numbers, these templates decide where they sit. */}}
 
-{{/* Money strip: three columns, mono tabular figures, hairlines between. */}}
+{{/* Money strip: three stat cards sharing one hairline frame. Icons are the
+     same family as the nav, so the page reads as one console rather than a
+     dashboard bolted onto a table. */}}
 {{define "money"}}
-<div class="money">
-  <div>
-    <span class="k">Money in today</span>
+<div class="stat-grid">
+  <div class="stat">
+    <span class="label"><svg class="ic" aria-hidden="true"><use href="#i-bank"/></svg>Money in today</span>
     {{if .In.Totals}}
       {{range .In.Totals}}
-      <span class="v pos">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
+      <span class="figure">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
       {{end}}
     {{else}}
-      <span class="v faint">0.00</span>
+      <span class="figure faint">0.00</span>
     {{end}}
-    <span class="d">
+    <span class="note">
       {{if .In.Totals}}{{if eq .In.From "ledger"}}credits net of refunds{{else}}verified and fulfilled today{{end}} · UTC day{{else}}nothing credited yet today{{end}}
     </span>
   </div>
-  <div>
-    <span class="k">Wallet-paid today</span>
+  <div class="stat">
+    <span class="label"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg>Wallet-paid today</span>
     {{if .In.Paid}}
       {{range .In.Paid}}
-      <span class="v">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
+      <span class="figure">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
       {{end}}
     {{else}}
-      <span class="v faint">0.00</span>
+      <span class="figure faint">0.00</span>
     {{end}}
-    <span class="d">internal transfer, not new money at the door</span>
+    <span class="note">internal transfer, not new money at the door</span>
   </div>
-  <div>
-    <span class="k">Open order value</span>
+  <div class="stat">
+    <span class="label"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>Open order value</span>
     {{if .OpenValue}}
       {{range .OpenValue}}
-      <span class="v">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
+      <span class="figure">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
       {{end}}
     {{else}}
-      <span class="v faint">0.00</span>
+      <span class="figure faint">0.00</span>
     {{end}}
-    <span class="d">{{.Open}} open, not yet settled</span>
+    <span class="note">{{.Open}} open, not yet settled</span>
   </div>
 </div>
 {{end}}

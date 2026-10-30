@@ -128,6 +128,11 @@ type Config struct {
 	// Now is optional clock injection for tests.
 	Now func() time.Time
 
+	// RedeliverDeadLetter re-sends one parked outbound delivery. main wires it to
+	// the outbound sender; nil means outbound delivery is not configured and the
+	// retry endpoint answers 501.
+	RedeliverDeadLetter func(ctx context.Context, id string) error
+
 	// Metrics, when non-nil, receives request, order and payment counters.
 	// Nil disables recording entirely.
 	Metrics Recorder

@@ -11,35 +11,53 @@
 <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
+{{template "icons" .}}
 <a class="skip" href="#main">Skip to content</a>
 <div class="shell">
   <aside class="side">
     <div class="brand">
-      <span class="name">paisabridge</span>
-      <span class="sub">operator console</span>
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M6 21c4.5 0 6.5-3 9-8s5-8 9-8"/>
+          <circle cx="6" cy="21" r="2.4" fill="currentColor" stroke="none"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="name">paisabridge</span>
+        <span class="sub">operator console</span>
+      </span>
     </div>
     <nav class="nav" aria-label="Sections">
-      <a href="/"{{if eq .Nav "dashboard"}} aria-current="page"{{end}}>Dashboard</a>
-      <a href="/queue"{{if eq .Nav "queue"}} aria-current="page"{{end}}>
-        <span>Review queue</span>
-        {{if .Review}}<span class="count">{{.Review}}</span>{{end}}
+      <a href="/"{{if eq .Nav "dashboard"}} aria-current="page"{{end}}>
+        <svg class="ic" aria-hidden="true"><use href="#i-dashboard"/></svg><span>Dashboard</span>
       </a>
-      <a href="/orders"{{if eq .Nav "orders"}} aria-current="page"{{end}}>Orders</a>
-      <a href="/notices"{{if eq .Nav "notices"}} aria-current="page"{{end}}>Notices</a>
+      <a href="/queue"{{if eq .Nav "queue"}} aria-current="page"{{end}}>
+        <svg class="ic" aria-hidden="true"><use href="#i-queue"/></svg><span>Review queue</span>
+        {{if .Review}}<span class="count" aria-label="{{.Review}} waiting">{{.Review}}</span>{{end}}
+      </a>
+      <a href="/orders"{{if eq .Nav "orders"}} aria-current="page"{{end}}>
+        <svg class="ic" aria-hidden="true"><use href="#i-orders"/></svg><span>Orders</span>
+      </a>
+      <a href="/notices"{{if eq .Nav "notices"}} aria-current="page"{{end}}>
+        <svg class="ic" aria-hidden="true"><use href="#i-notices"/></svg><span>Notices</span>
+        {{if .Unmatched}}<span class="count warn" aria-label="{{.Unmatched}} unmatched">{{.Unmatched}}</span>{{end}}
+      </a>
     </nav>
     <div class="side-foot">
       <form method="post" action="/logout" class="logout">
         <input type="hidden" name="csrf" value="{{.Token}}">
-        <button class="btn btn-quiet" type="submit">Sign out</button>
+        <button class="btn btn-quiet" type="submit">
+          <svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><span>Sign out</span>
+        </button>
       </form>
     </div>
   </aside>
   <main class="main" id="main">
     {{body .}}
     <div class="foot">
-      <span>paisabridge {{.Version}}</span>
-      <span>{{.Now}}</span>
-      <span>Manual review leaves an event in the order journal.</span>
+      <span class="foot-item"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>manual review leaves an event in the order journal</span>
+      <span class="foot-item"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>{{.Now}}</span>
+      <span class="foot-item mono">{{.Version}}</span>
     </div>
   </main>
 </div>

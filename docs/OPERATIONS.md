@@ -85,6 +85,14 @@ Terminate TLS at the proxy. The Caddy config the project ships is in
 Keeping them apart stops a missing disk from causing a restart loop, and stops a
 wedged process from staying in rotation.
 
+## Operator console
+
+Separate listener (`PB_ADMIN_ADDR`), token sign-in, review queue, orders, unmatched
+payments. Bind it to loopback or a VPN address — it is never reachable on the payment
+port.
+
+![Review queue](media/admin-queue.png)
+
 ## Backups
 
 Everything lives in one SQLite file plus its `-wal`/`-shm` siblings:

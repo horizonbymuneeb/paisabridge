@@ -216,6 +216,8 @@ Two alerts cover the common incidents: a sustained rise in
 side), and `outbound_deadletter_open > 0` for fifteen minutes (your storefront
 webhook is down and deliveries are being parked).
 
+![Review queue](media/admin-queue.png)
+
 ## Operator console
 
 Set `PB_ADMIN_ADDR` (for example `127.0.0.1:8081`) to serve a server-rendered

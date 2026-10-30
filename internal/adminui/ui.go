@@ -304,6 +304,7 @@ type chrome struct {
 	Version   string
 	Now       string // render timestamp, fixed-width UTC
 	Review    int    // review-queue badge
+	Unmatched int    // unmatched-payment badge
 	CSRFField string
 }
 

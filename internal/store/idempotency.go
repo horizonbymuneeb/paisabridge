@@ -176,7 +176,7 @@ func (s *Store) idemGet(ctx context.Context, scope, key string) (IdemRecord, boo
 		return IdemRecord{}, false, err
 	}
 	row.State = IdemState(state)
-	row.CreatedAt, _ = time.Parse(TimeLayout, createdAt)
+	row.CreatedAt = mustParseTime(createdAt)
 	return row, true, nil
 }
 

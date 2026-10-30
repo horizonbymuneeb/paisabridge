@@ -11,6 +11,13 @@ amount-unique order matching, a Telegram bot and a wallet ledger.
 
 MIT licensed. Single Go binary. SQLite by default, no SaaS dependency.
 
+![The paisabridge operator console: review queue with one order waiting](docs/media/admin-queue.png)
+
+**Docs site:** https://horizonbymuneeb.github.io/paisabridge/ ·
+[webhook setup](https://horizonbymuneeb.github.io/paisabridge/webhooks.html) ·
+[console guide](https://horizonbymuneeb.github.io/paisabridge/admin-console.html) ·
+[API reference](https://horizonbymuneeb.github.io/paisabridge/api.html)
+
 ```
 order created  ->  unique amount (Rs 1499 -> Rs 1507, within +-Rs 9)
                ->  buyer pays with any rail
@@ -135,6 +142,9 @@ e-mail, so it opens a review, never a shipment.
 
 ## Documentation
 
+Full guides with screenshots live on the docs site; the Markdown is the source of
+record and ships with the repo.
+
 | Doc | Contents |
 |-----|----------|
 | [`docs/QUICKSTART.md`](docs/QUICKSTART.md) | clone -> fulfilled order in 15 minutes |
@@ -166,6 +176,20 @@ e-mail, so it opens a review, never a shipment.
 - **Observability** - Prometheus `/metrics`, liveness and readiness split,
   dead-letter table for outbound deliveries, one structured log line per request.
 - **Zero external services** - one binary, one SQLite file.
+
+## Screens
+
+| | |
+|---|---|
+| ![Review queue](docs/media/admin-queue.png) | ![Dashboard](docs/media/admin-dashboard.png) |
+| **Review queue** — approve or reject a parked payment in one click; the optional tx reference binds the inbound transaction to the order | **Dashboard** — money in today, wallet-paid today, open order value, and the two queues that need a human |
+| ![Orders](docs/media/admin-orders.png) | ![Order detail](docs/media/admin-order-detail.png) |
+| **Orders** — dense rows, filter by status, search by ref or bank-statement transaction reference | **Order detail** — every field plus the append-only journal of who changed what and why |
+
+The console is server-rendered with `html/template` and one hand-written CSS file:
+no build step, no npm, no CDN, no external icons. Every glyph is an inline SVG
+symbol. Verified with headless Chromium at 1440x900 and 390x844: zero horizontal
+overflow on every screen and zero console errors.
 
 ## Status
 

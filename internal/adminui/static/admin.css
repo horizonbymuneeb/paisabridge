@@ -993,3 +993,228 @@ td form .btn {
     border-color: #999;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Icon set
+   Inline sprite (templates/icons.html) rather than an icon font or a CDN: the
+   glyphs inherit currentColor and the stroke weight stays consistent at every
+   size. 1em sizing keeps icons on the text baseline without per-use overrides.
+   --------------------------------------------------------------------------- */
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.ic {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  vertical-align: -3px;
+  pointer-events: none;
+}
+
+.nav a .ic {
+  width: 15px;
+  height: 15px;
+  color: var(--ink-3);
+  transition: color 120ms ease;
+}
+
+.nav a[aria-current="page"] .ic,
+.nav a:hover .ic {
+  color: var(--ink);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.brand .mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--accent);
+  background: linear-gradient(180deg, #fff, #f5f6f7);
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+/* ---------------------------------------------------------------------------
+   Density and interaction polish
+   --------------------------------------------------------------------------- */
+.nav a {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start; /* the count pushes itself, the label never floats */
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 4px;
+  color: var(--ink-2);
+  transition: background-color 110ms ease, color 110ms ease;
+}
+
+.nav a:hover {
+  background: #f2f3f3;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.nav a[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.nav .count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink-2);
+  font: 600 11px/16px var(--mono);
+  text-align: center;
+}
+
+.nav .count.warn {
+  border-color: #e5cfa8;
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn .ic {
+  width: 14px;
+  height: 14px;
+}
+
+/* Tables read better when the row answers a hover, not when every cell is a
+   card. The hairline stays; only the ground lifts. */
+tbody tr {
+  transition: background-color 90ms ease;
+}
+
+tbody tr:hover {
+  background: #fafafa;
+}
+
+/* Focus: a visible ring on the element that actually owns focus, keyboard only,
+   so a data-dense screen does not flash rings on every click. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.foot-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.foot-item .ic {
+  width: 13px;
+  height: 13px;
+  color: var(--ink-3);
+}
+
+/* Stat cards on the dashboard: label, figure, footnote. Square corners, a
+   hairline, and the accent only on the figure that changed. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--card);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px 13px;
+  border-right: 1px solid var(--line);
+}
+
+.stat:last-child {
+  border-right: 0;
+}
+
+.stat .label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font: 600 10.5px/16px var(--sans);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.stat .label .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.stat .figure {
+  display: block;
+  margin: 6px 0 2px;
+  font: 600 22px/28px var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+
+.stat .note {
+  display: block;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 16px;
+}
+
+@media (max-width: 720px) {
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+  .stat {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .stat:last-child {
+    border-bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

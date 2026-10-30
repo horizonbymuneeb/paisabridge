@@ -1,0 +1,319 @@
+---
+title: Webhook setup
+desc: How to connect every payment rail to paisabridge - bank relays, Easypaisa, JazzCash, NayaPay, SadaPay, Binance Pay, USDT and Payoneer - and how outbound webhooks reach your storefront.
+nav: webhooks
+webhooks_href: webhooks.html
+out: webhooks.html
+---
+<div class="doc wrap">
+  <aside>
+    <div class="grp">
+      <p class="lbl">Inbound</p>
+      <a href="#concept">The two directions</a>
+      <a href="#envelope">The signed envelope</a>
+      <a href="#bank">Bank IBFT / Raast</a>
+      <a href="#easypaisa">Easypaisa</a>
+      <a href="#jazzcash">JazzCash</a>
+      <a href="#nayapay">NayaPay</a>
+      <a href="#sadapay">SadaPay</a>
+      <a href="#binance">Binance Pay</a>
+      <a href="#usdt">USDT on-chain</a>
+      <a href="#payoneer">Payoneer</a>
+    </div>
+    <div class="grp">
+      <p class="lbl">Outbound</p>
+      <a href="#outbound">Storefront webhook</a>
+      <a href="#deadletter">Dead letters</a>
+    </div>
+    <div class="grp">
+      <p class="lbl">Also</p>
+      <a href="api.html">API reference</a>
+      <a href="admin-console.html">Operator console</a>
+    </div>
+  </aside>
+
+  <article>
+    <h1>Webhook setup</h1>
+    <p class="lede-2">
+      Every payment enters paisabridge the same way: one HTTP POST carrying one
+      payment fact. What changes per rail is the signature scheme and whether the
+      match may fulfil an order on its own. This page is the setup guide for each
+      rail, in the order most deployments need them.
+    </p>
+
+    <div class="note warn">
+      <strong>The rule that decides everything</strong>
+      <p>
+        If the party that sent the webhook could have forged it, the match is
+        <em>evidence</em>, not proof: the order goes to <code>review</code> and a
+        human confirms it. Only a signature the sender cannot mint without the
+        shared secret may fulfil an order automatically.
+      </p>
+    </div>
+
+    <h2 id="concept">The two directions</h2>
+    <div class="grid two">
+      <div class="cell">
+        <span class="k">Inbound — rail → gateway</span>
+        <p class="v" style="font-size:13.5px;line-height:21px;font-weight:400">
+          <code>POST /api/webhooks/{method}</code> proves a payment arrived. Configure
+          it wherever the money lands: a bank-alert relay, the provider dashboard, or
+          a chain watcher.
+        </p>
+      </div>
+      <div class="cell">
+        <span class="k">Outbound — gateway → storefront</span>
+        <p class="v" style="font-size:13.5px;line-height:21px;font-weight:400">
+          <code>PB_OUTBOUND_WEBHOOK_URL</code> tells your site that an order changed
+          state. Signed with <code>X-PB-Signature</code>, retried, and parked in a
+          dead-letter table if your site is down.
+        </p>
+      </div>
+    </div>
+
+    <h2 id="envelope">The signed envelope</h2>
+    <p>
+      Rails that arrive through a relay (bank alerts, a USDT watcher, a provider whose
+      callback has no offline-verifiable signature) speak one envelope so the gateway
+      has a single thing to authenticate before it looks at the payload:
+    </p>
+    <pre><code>{
+  "id": "ntc-IBFT-001",
+  "method": "bank",
+  "issued_at": 1761700000,
+  "payload": {
+    "txn_ref": "IBFT-001",
+    "amount_minor": 150700,
+    "currency": "PKR",
+    "sender_name": "Ali Raza",
+    "received_at": "2026-10-31T08:15:00Z",
+    "note": "Rs 1507.00 has been credited to A/C 12345678901234 from Ali Raza"
+  }
+}</code></pre>
+    <p>The transport signature covers the id, the rail, the timestamp and the payload:</p>
+    <pre><code>X-Paisabridge-Signature: v1=hex(HMAC-SHA256(secret,
+      "v1." + id + "." + method + "." + issued_at + "." + payloadBytes))</code></pre>
+    <div class="note">
+      <strong>Do not hand-assemble this JSON</strong>
+      <p>
+        The signature covers exact bytes, and any re-serialisation reorders keys and
+        breaks it. Use the bundled CLI (or <code>notice.Encode</code>) to mint one:
+      </p>
+    </div>
+    <pre><code>go build -o pbsend ./cmd/pbsend
+
+./pbsend -url http://localhost:8080/api/webhooks/bank \
+         -secret "$PB_BANK_RELAY_SECRET" -method bank \
+         -amount 150700 -txn IBFT-001 \
+         -sender "Ali Raza" -sender-account 12345678901234 \
+         -note "Rs 1507.00 has been credited to A/C 12345678901234 from Ali Raza"</code></pre>
+    <pre><code>HTTP 200
+{"matched":true,"order_id":"ord_9e75...","reason":"matched","credited":true}</code></pre>
+    <p class="caption">
+      Re-sending the same envelope is refused with <code>replayed envelope id</code> —
+      the durable replay guard keeps the id, so a retry can never credit twice.
+    </p>
+
+    <h2 id="bank">Bank IBFT / Raast (e-mail or SMS alert)</h2>
+    <p>
+      Pakistani banks do not expose a merchant API for plain account transfers, so the
+      credit alert <em>is</em> the payment fact. The alert is unsigned, which is
+      exactly why this rail never auto-fulfils.
+    </p>
+
+    <h3>1. Give the gateway a secret</h3>
+    <pre><code>export PB_BANK_RELAY_SECRET="$(openssl rand -hex 32)"</code></pre>
+
+    <h3>2. Point your alert relay at the webhook</h3>
+    <p>
+      Whatever already receives the credit alert — a Gmail filter, a Postmark inbound
+      webhook, an SMS forwarder — POSTs the alert text to a tiny relay you control.
+      The relay parses nothing: it wraps the text in the envelope, signs it, and
+      forwards it.
+    </p>
+    <pre><code>POST https://your-shop.example/pb-relay/bank-alert
+{
+  "text": "Rs 1507.00 has been credited to A/C 12345678901234 from Ali Raza on 31-10-2026"
+}</code></pre>
+    <p>The relay then forwards a signed envelope to the gateway (see above).</p>
+
+    <h3>3. What the gateway does with it</h3>
+    <table>
+      <thead><tr><th>Amount matches an open order</th><th>Outcome</th></tr></thead>
+      <tbody>
+        <tr><td>exactly one, inside its window</td><td><span class="pill review"><span class="dot"></span>review</span> — one click approves</td></tr>
+        <tr><td>none</td><td>stored as an unmatched notice, visible in the console</td></tr>
+        <tr><td>two or more (collision)</td><td><span class="pill review"><span class="dot"></span>review</span> — never guessed</td></tr>
+        <tr><td>order already terminal</td><td>recorded as duplicate, nothing changes</td></tr>
+      </tbody>
+    </table>
+    <div class="note ok">
+      <strong>Why not auto-fulfil?</strong>
+      <p>
+        Anyone who can reach that inbox can produce a convincing credit alert. The
+        relay's HMAC proves the alert came from your relay, not that the bank sent it —
+        so the match is a candidate, and a human confirms against the statement.
+      </p>
+    </div>
+
+    <h3>4. Alert templates understood</h3>
+    <p>
+      Parsing is strict: HBL, Meezan, UBL, Bank Alfalah, Askari, JS and a generic
+      IBFT/Raast shape are recognised. Anything else returns
+      <code>ErrUnknownTemplate</code> — an operator adds a template; the gateway never
+      guesses.
+    </p>
+
+    <h2 id="easypaisa">Easypaisa</h2>
+    <pre><code>export PB_EASYPAISA_SECRET="your-onboarding-hash-key"</code></pre>
+    <p>
+      Easypaisa signs the callback with <code>merchantHashedResp</code>: AES over
+      <code>transactionId&amp;code&amp;desc</code>, success code <code>0000</code>.
+    </p>
+    <table>
+      <thead><tr><th>Field</th><th>Where it comes from</th></tr></thead>
+      <tbody>
+        <tr><td><code>merchantHashedResp</code></td><td>the callback query string</td></tr>
+        <tr><td>store id / account</td><td>your onboarding pack</td></tr>
+        <tr><td>return URL</td><td>point it at <code>/api/webhooks/easypaisa</code></td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <strong>Known limitation, stated openly</strong>
+      <p>
+        AES-ECB is malleable. The adapter therefore also binds the ciphertext to the
+        transaction id, and the test suite pins that binding — but a rail whose
+        signature is weaker than an HMAC is documented as such rather than presented
+        as equal.
+      </p>
+    </div>
+
+    <h2 id="jazzcash">JazzCash</h2>
+    <pre><code>export PB_JAZZCASH_SALT="your-integrity-salt"</code></pre>
+    <p>
+      JazzCash posts back the <code>pp_</code> fields with <code>pp_SecureHash</code>:
+      HMAC-SHA256 over the sorted <code>pp_</code> parameters (excluding
+      <code>pp_SecureHash*</code>), keyed with the integrity salt.
+    </p>
+    <pre><code>pp_TxnRefNo=PB-7F3K2Q&amp;pp_Amount=150700&amp;pp_TxnCurrency=PKR&amp;pp_ResponseCode=000
+...
+pp_SecureHash=3f9c...e21</code></pre>
+    <p class="caption">
+      The published documentation is ambiguous about how values are joined. Both
+      conventions are accepted; the matched one is reported so a deployment can pin it
+      after its first real callback.
+    </p>
+
+    <h2 id="nayapay">NayaPay</h2>
+    <pre><code>export PB_NAYAPAY_WEBHOOK_SECRET="shared-with-nayapay"
+export PB_NAYAPAY_TOKEN="merchant-api-token"
+export PB_NAYAPAY_BASE_URL="https://api.nayapay.com"</code></pre>
+    <p>
+      NayaPay gives you a webhook secret plus a merchant status API. The API is the
+      higher bar: the adapter can re-query the provider for a transaction instead of
+      trusting the callback body.
+    </p>
+    <pre><code>POST /api/webhooks/nayapay
+X-Signature: hex(hmac_sha256(webhook_secret, raw_body))</code></pre>
+
+    <h2 id="sadapay">SadaPay</h2>
+    <pre><code>export PB_SADAPAY_WEBHOOK_SECRET="shared-with-sadapay"</code></pre>
+    <p>
+      SadaPay callbacks carry a HMAC header and a six-digit verification code. For
+      OTP-style products that code travels to the buyer through the Telegram bot once
+      the order is fulfilled — never before.
+    </p>
+
+    <h2 id="binance">Binance Pay</h2>
+    <pre><code>export PB_BINANCEPAY_SECRET="binance-pay-secret-key"</code></pre>
+    <p>Binance's published scheme, implemented exactly:</p>
+    <pre><code>hex(HMAC-SHA256(secret, timestamp + "\n" + nonce + "\n" + body + "\n"))</code></pre>
+    <div class="note warn">
+      <strong>Timestamp window</strong>
+      <p>
+        Binance's own SDK uses 30 seconds. This adapter allows 5 minutes because
+        retried callbacks are normal on slow networks, and a rejected real payment is
+        worse than a 5-minute replay window that the nonce guard closes anyway. The
+        certificate serial number is recorded but not validated against Binance's CA —
+        there is no offline path to that chain.
+      </p>
+    </div>
+
+    <h2 id="usdt">USDT (BEP-20 / TRC-20)</h2>
+    <pre><code>export PB_BINANCEPAY_SECRET="relay-secret"
+export PB_USDT_RECEIVER="0xYourReceivingAddress"
+export PB_USDT_CONTRACT="0x55d398326f99059fF775485246999027B3197955"   # BEP-20
+export PB_USDT_CHAIN="56"</code></pre>
+    <p>
+      A watcher follows the receiver address and emits one signed envelope per incoming
+      transfer. Three facts must agree before a match: the token contract, the
+      receiver, and the confirmation count (15 on BSC, 19 on Tron — configurable).
+    </p>
+    <div class="note bad">
+      <strong>Verify the contract yourself before funding</strong>
+      <p>
+        The contract constants ship with the source and a comment naming where they came
+        from. Re-confirm them against the official token page before you point real
+        money at an address.
+      </p>
+    </div>
+
+    <h2 id="payoneer">Payoneer</h2>
+    <pre><code>export PB_PAYONEER_SECRET="link-stamp-secret"</code></pre>
+    <p>
+      Payoneer has no per-transaction callback with an offline-verifiable signature, so
+      the adapter uses a domain-separated link stamp: the payment link carries an order
+      stamp, and the inbound envelope must present the same stamp. It is labelled as an
+      in-house protocol in the code, not as a Payoneer signature.
+    </p>
+
+    <h2 id="outbound">Outbound webhook → your storefront</h2>
+    <p>
+      This is how your site learns an order was paid without polling.
+    </p>
+    <pre><code>export PB_OUTBOUND_WEBHOOK_URL="https://shop.example.com/pb/hook"
+export PB_OUTBOUND_SECRET="$(openssl rand -hex 32)"</code></pre>
+    <pre><code>POST https://shop.example.com/pb/hook
+X-PB-Event: order.fulfilled
+X-PB-Delivery: order.fulfilled:ord_9e75...:fulfilled
+X-PB-Signature: hex(HMAC-SHA256(secret, rawBody))
+
+{"event":"order.fulfilled","delivery_id":"order.fulfilled:ord_...:fulfilled",
+ "order":{"id":"ord_...","status":"fulfilled","amount_minor":150700,...},"attempt":1}</code></pre>
+    <table>
+      <thead><tr><th>Behaviour</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Signature</td><td>verify over the exact bytes; the body is JSON you already received</td></tr>
+        <tr><td>Idempotency</td><td><code>X-PB-Delivery</code> is stable across retries — dedupe on it</td></tr>
+        <tr><td>Retries</td><td>5 attempts with backoff; <code>4xx</code> is not retried (except 429)</td></tr>
+        <tr><td>Events</td><td><code>order.fulfilled</code>, <code>.verified</code>, <code>.review</code>, <code>.expired</code>, <code>.cancelled</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="deadletter">Dead letters</h2>
+    <p>
+      If your storefront is down long enough to exhaust the retries, the delivery is
+      parked with the exact signed body instead of being lost. When your site is back:
+    </p>
+    <pre><code>curl -s -H "X-Admin-Token: $PB_ADMIN_TOKEN" \
+  localhost:8080/api/admin/deadletters
+
+curl -s -X POST -H "X-Admin-Token: $PB_ADMIN_TOKEN" \
+  localhost:8080/api/admin/deadletters/dl_9a2e.../retry</code></pre>
+    <p class="caption">
+      A retry re-sends the stored bytes, so the receiver's own signature check still
+      passes. Verified end to end: a parking receiver produced one row after five
+      attempts, and the retry resolved it once the receiver recovered.
+    </p>
+
+    <div class="note ok">
+      <strong>Testing a rail without a provider</strong>
+      <p>
+        <code>pbsend</code> is the same code path the relay uses: it builds the
+        envelope with <code>notice.Encode</code>, signs it, and posts it. That means a
+        full payment can be exercised on a laptop, and the signature you test is the
+        signature production sees.
+      </p>
+    </div>
+  </article>
+</div>

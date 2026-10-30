@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API reference · paisabridge</title>
+<meta name="description" content="Every paisabridge endpoint - orders, webhooks, wallet, admin, health and metrics - with request and response shapes.">
+<meta property="og:title" content="API reference · paisabridge">
+<meta property="og:description" content="Every paisabridge endpoint - orders, webhooks, wallet, admin, health and metrics - with request and response shapes.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="index.html">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+          <path d="M6 21c4.5 0 6.5-3 9-8s5-8 9-8"/><circle cx="6" cy="21" r="2.6" fill="currentColor" stroke="none"/>
+        </svg>
+      </span>
+      paisabridge
+    </a>
+    <nav aria-label="Documentation">
+      <a href="getting-started.html">Get started</a>
+      <a href="webhooks.html">Webhooks</a>
+      <a href="admin-console.html">Console</a>
+      <a href="api.html" aria-current="page">API</a>
+      <a href="operations.html">Operations</a>
+      <a class="gh" href="https://github.com/horizonbymuneeb/paisabridge">
+        <svg class="ic" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+<main id="main">
+<div class="doc wrap">
+  <aside>
+    <div class="grp">
+      <p class="lbl">API</p>
+      <a href="#conventions">Conventions</a>
+      <a href="#create">Create order</a>
+      <a href="#read">Read order</a>
+      <a href="#claim">Claim / cancel</a>
+      <a href="#webhook">Webhook</a>
+      <a href="#wallet">Wallet</a>
+      <a href="#admin">Admin</a>
+      <a href="#health">Health</a>
+      <a href="#metrics">Metrics</a>
+      <a href="#limits">Rate limits</a>
+    </div>
+    <div class="grp">
+      <p class="lbl">Also</p>
+      <a href="webhooks.html">Webhook setup</a>
+      <a href="getting-started.html">Getting started</a>
+    </div>
+  </aside>
+
+  <article>
+    <h1>API reference</h1>
+    <p class="lede-2">
+      JSON in, JSON out. All amounts are integer minor units — paisa for PKR
+      (1 PKR = 100), micro-units for USDT (1 USDT = 1,000,000). No floats anywhere.
+    </p>
+
+    <h2 id="conventions">Conventions</h2>
+    <p>Every error has the same shape:</p>
+    <pre><code>{"error": "too many requests; retry after the number of seconds in Retry-After",
+ "code": "rate_limited",
+ "detail": "limit=orders_write; retry_after_s=2"}</code></pre>
+    <table>
+      <thead><tr><th class="num">HTTP</th><th>code</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td class="num">400</td><td><code>invalid_request</code></td><td>malformed body or missing field</td></tr>
+        <tr><td class="num">401</td><td><code>unauthorized</code></td><td>bad or missing admin token</td></tr>
+        <tr><td class="num">401</td><td><code>invalid_signature</code></td><td>webhook signature did not verify</td></tr>
+        <tr><td class="num">404</td><td><code>not_found</code></td><td>no such order</td></tr>
+        <tr><td class="num">409</td><td><code>order_not_open</code></td><td>order terminal or not payable</td></tr>
+        <tr><td class="num">409</td><td><code>idempotency_conflict</code></td><td>same key, different content</td></tr>
+        <tr><td class="num">429</td><td><code>rate_limited</code></td><td>per-IP bucket exhausted</td></tr>
+        <tr><td class="num">503</td><td><code>not_ready</code></td><td>database unreachable (readiness)</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="create">POST /api/orders</h2>
+    <pre><code>{
+  "product_id": "chatgpt-plus",
+  "product_name": "ChatGPT Plus — 1 month",
+  "catalog_price_minor": 149900,
+  "currency": "PKR",
+  "method": "easypaisa",
+  "customer_email": "buyer@example.com",
+  "customer_phone": "tg:123456789",
+  "ttl_seconds": 900,
+  "idempotency_key": "cart-8812"
+}</code></pre>
+    <table>
+      <thead><tr><th>Field</th><th>Required</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>product_id</code></td><td>yes</td><td>your catalogue key</td></tr>
+        <tr><td><code>catalog_price_minor</code></td><td>yes</td><td>list price, &gt; 0</td></tr>
+        <tr><td><code>currency</code></td><td>yes</td><td><code>PKR</code> or <code>USDT</code></td></tr>
+        <tr><td><code>method</code></td><td>yes</td><td>easypaisa, jazzcash, nayapay, sadapay, bank, usdt, binance, payoneer</td></tr>
+        <tr><td><code>customer_phone</code></td><td>no</td><td><code>tg:&lt;chat_id&gt;</code> binds the order to Telegram</td></tr>
+        <tr><td><code>ttl_seconds</code></td><td>no</td><td>default 900, max 3600</td></tr>
+        <tr><td><code>idempotency_key</code></td><td>no</td><td>retry-safe creation, see below</td></tr>
+      </tbody>
+    </table>
+    <p>
+      <strong>Idempotency.</strong> Send <code>idempotency_key</code> when your checkout
+      retries. The same key with the same body returns the <em>same order</em> with
+      <code>200</code> instead of creating a second one; the same key with different
+      content is <code>409 idempotency_conflict</code>, because creating a duplicate
+      silently is worse than a clear error. One key per customer intent, not per HTTP
+      attempt — verified live: <code>201</code> then <code>200</code> with the same id.
+    </p>
+
+    <h2 id="read">GET /api/orders/{id}</h2>
+    <p><code>{id}</code> accepts the UUID or the short ref. Returns the order plus its journal:</p>
+    <pre><code>{"order": {...}, "events": [
+  {"from_status":"created","to_status":"pending_payment","actor":"system","created_at":"..."}
+]}</code></pre>
+
+    <h2 id="claim">POST /api/orders/{id}/claim · /cancel</h2>
+    <p>
+      <code>claim</code> pays an order from a wallet at the prepay discount and moves it
+      to <code>verified</code>. <code>cancel</code> releases an open order and refunds it
+      if it had been paid from the wallet. Both are idempotent.
+    </p>
+    <pre><code>{"order":{...},"price_minor":150000,"discount_minor":7500,"charged_minor":142500,"balance":357500}</code></pre>
+
+    <h2 id="webhook">POST /api/webhooks/{method}</h2>
+    <p>
+      The only inbound payment path. The adapter verifies the provider signature before
+      anything is mutated; a failure is <code>401</code> and is logged. Full per-rail
+      setup: <a href="webhooks.html">webhook setup</a>.
+    </p>
+    <pre><code>{"matched":true,"order_id":"ord_...","reason":"matched","credited":true}
+{"matched":false,"reason":"no_open_order","credited":false}
+{"ok":true,"duplicate":true}</code></pre>
+    <p class="caption">
+      Reasons: <code>matched</code>, <code>duplicate_txn_ref</code>,
+      <code>ambiguous_amount</code>, <code>order_expired</code>,
+      <code>no_open_order</code>, <code>method_mismatch</code>.
+    </p>
+
+    <h2 id="wallet">Wallet</h2>
+    <pre><code>GET /api/wallet?user_id=tg:123456789
+{"user_id":"tg:123456789","currency":"PKR","available_minor":357500,"discount_bps":500,"entries":[...]}
+
+POST /api/wallet/topup
+{"user_id":"tg:123456789","amount_minor":500000,"idempotency_key":"topup-1","memo":"deposit"}</code></pre>
+    <p class="caption">A replayed <code>idempotency_key</code> is a no-op that returns the current balance.</p>
+
+    <h2 id="admin">Admin (X-Admin-Token)</h2>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>POST /api/admin/approve</code></td><td>approve a review order, with an audit note</td></tr>
+        <tr><td><code>GET /api/admin/deadletters</code></td><td>parked outbound deliveries</td></tr>
+        <tr><td><code>POST /api/admin/deadletters/{id}/retry</code></td><td>re-send one parked delivery</td></tr>
+        <tr><td><code>GET /api/admin/orders</code></td><td>triage list with status filter</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="health">Health and readiness</h2>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Question</th><th>Wire it to</th></tr></thead>
+      <tbody>
+        <tr><td><code>GET /api/healthz</code></td><td>is the process serving? (does not fail on the database)</td><td>restart policy</td></tr>
+        <tr><td><code>GET /api/readyz</code></td><td>can it serve payments? (<code>503</code> when the DB is gone)</td><td>load balancer</td></tr>
+      </tbody>
+    </table>
+    <p class="caption">
+      Keeping them apart stops a missing disk from causing a restart loop, and a wedged
+      process from staying in rotation. Verified: closing the database gives
+      <code>readyz 503</code> while <code>healthz</code> stays <code>200</code>.
+    </p>
+
+    <h2 id="metrics">GET /metrics</h2>
+    <p>Prometheus text format, disabled unless <code>PB_METRICS=1</code>; add <code>PB_METRICS_TOKEN</code> to require <code>X-Metrics-Token</code>.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Metric</th><th>Type</th><th>Labels</th></tr></thead>
+        <tbody>
+          <tr><td><code>paisabridge_orders_created_total</code></td><td>counter</td><td>method, status</td></tr>
+          <tr><td><code>paisabridge_payments_matched_total</code></td><td>counter</td><td>outcome, reason</td></tr>
+          <tr><td><code>paisabridge_webhook_signature_failures_total</code></td><td>counter</td><td>method</td></tr>
+          <tr><td><code>paisabridge_ratelimited_requests_total</code></td><td>counter</td><td>class</td></tr>
+          <tr><td><code>paisabridge_http_requests_total</code></td><td>counter</td><td>class, status</td></tr>
+          <tr><td><code>paisabridge_http_request_duration_seconds</code></td><td>histogram</td><td>class</td></tr>
+          <tr><td><code>paisabridge_outbound_deliveries_total</code></td><td>counter</td><td>event, result</td></tr>
+          <tr><td><code>paisabridge_outbound_deadletter_open</code></td><td>gauge</td><td>—</td></tr>
+          <tr><td><code>paisabridge_build_info</code></td><td>gauge</td><td>version</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="limits">Rate limits</h2>
+    <p>Per client IP, per route class. A refusal is <code>429</code> with <code>Retry-After</code>.</p>
+    <table>
+      <thead><tr><th>Class</th><th>Endpoints</th><th class="num">Per minute</th><th class="num">Burst</th></tr></thead>
+      <tbody>
+        <tr><td><code>orders_write</code></td><td>POST /api/orders</td><td class="num">10</td><td class="num">10</td></tr>
+        <tr><td><code>orders_read</code></td><td>GET /api/orders/{id}</td><td class="num">120</td><td class="num">40</td></tr>
+        <tr><td><code>orders_action</code></td><td>claim, cancel</td><td class="num">20</td><td class="num">8</td></tr>
+        <tr><td><code>webhooks</code></td><td>POST /api/webhooks/{method}</td><td class="num">300</td><td class="num">60</td></tr>
+        <tr><td><code>wallet</code></td><td>wallet endpoints</td><td class="num">30</td><td class="num">10</td></tr>
+        <tr><td><code>admin</code></td><td>/api/admin/*</td><td class="num">20</td><td class="num">5</td></tr>
+      </tbody>
+    </table>
+    <p class="caption">
+      Webhooks are deliberately generous: providers retry, and throttling a real payment
+      is worse than absorbing a burst. Behind a proxy set
+      <code>PB_TRUST_PROXY=1</code>, or every request looks like the proxy and one noisy
+      client throttles everyone.
+    </p>
+  </article>
+</div>
+
+</main>

@@ -56,16 +56,24 @@ func (s *Server) render(w http.ResponseWriter, status int, p page) {
 // with the queue screen by more than one page of history.
 func (s *Server) chromeFor(r *http.Request, ctx context.Context, title, nav string) chrome {
 	n := 0
+	unmatched := 0
 	if orders, err := s.loadOrders(ctx, 500); err == nil {
 		n = countByStatus(orders).review()
 	}
+	// The notices badge counts only what a human must act on. It shares the
+	// bounded read with the dashboard, so the two screens cannot disagree by
+	// more than one page of history.
+	if notices, err := s.cfg.Store.ListNotices(ctx, "unmatched", 500); err == nil {
+		unmatched = len(notices)
+	}
 	return chrome{
-		Title:   title,
-		Nav:     nav,
-		Token:   s.csrfToken(s.session(r)),
-		Version: versionString(),
-		Now:     s.now().UTC().Format("2006-01-02 15:04:05 MST"),
-		Review:  n,
+		Title:     title,
+		Nav:       nav,
+		Token:     s.csrfToken(s.session(r)),
+		Version:   versionString(),
+		Now:       s.now().UTC().Format("2006-01-02 15:04:05 MST"),
+		Review:    n,
+		Unmatched: unmatched,
 	}
 }
 

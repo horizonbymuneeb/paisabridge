@@ -55,7 +55,6 @@ var (
 
 // TimeLayout is how timestamps are persisted. Fixed-width UTC so string
 // ordering and SQL MIN/MAX comparisons are chronological.
-const TimeLayout = "2006-01-02T15:04:05.000000000Z"
 
 // Store is a handle to the paisabridge database.
 type Store struct {
@@ -725,7 +724,7 @@ func (s *Store) Events(ctx context.Context, orderID string) ([]OrderEvent, error
 			return nil, err
 		}
 		e.FromState, e.ToState = types.OrderStatus(from), types.OrderStatus(to)
-		e.CreatedAt, _ = time.Parse(TimeLayout, ts)
+		e.CreatedAt = mustParseTime(ts)
 		out = append(out, e)
 	}
 	return out, rows.Err()
@@ -820,8 +819,8 @@ func (s *Store) ListNotices(ctx context.Context, status string, limit int) ([]*N
 			return nil, err
 		}
 		n.Method = types.Method(method)
-		n.ReceivedAt, _ = time.Parse(TimeLayout, received)
-		n.CreatedAt, _ = time.Parse(TimeLayout, createdAt)
+		n.ReceivedAt = mustParseTime(received)
+		n.CreatedAt = mustParseTime(createdAt)
 		out = append(out, &n)
 	}
 	return out, rows.Err()
@@ -853,9 +852,9 @@ func scanOrder(r rowScanner) (*types.Order, error) {
 	}
 	o.Method = types.Method(method)
 	o.Status = types.OrderStatus(status)
-	o.ExpiresAt, _ = time.Parse(TimeLayout, expires)
-	o.CreatedAt, _ = time.Parse(TimeLayout, created)
-	o.UpdatedAt, _ = time.Parse(TimeLayout, updated)
+	o.ExpiresAt = mustParseTime(expires)
+	o.CreatedAt = mustParseTime(created)
+	o.UpdatedAt = mustParseTime(updated)
 	return &o, nil
 }
 

@@ -186,6 +186,31 @@ func humanAge(d time.Duration) string {
 	}
 }
 
+// windowText describes the payment window for a row: a countdown while the
+// order can still be paid, and a plain statement once it cannot.
+func windowText(o *types.Order, now time.Time) string {
+	switch o.Status {
+	case types.StatusFulfilled:
+		return "closed · delivered"
+	case types.StatusExpired:
+		return "closed · expired"
+	case types.StatusCancelled:
+		return "closed · cancelled"
+	case types.StatusReview:
+		if o.ExpiresAt.IsZero() {
+			return "awaiting decision"
+		}
+		if now.After(o.ExpiresAt) {
+			return "window passed"
+		}
+		return humanUntil(o.ExpiresAt.Sub(now))
+	}
+	if o.ExpiresAt.IsZero() {
+		return "-"
+	}
+	return humanUntil(o.ExpiresAt.Sub(now))
+}
+
 // humanUntil is humanAge for a deadline that may already have passed.
 func humanUntil(d time.Duration) string {
 	if d < 0 {
@@ -326,18 +351,20 @@ func buildOrderRow(o *types.Order, now time.Time, csrf string, withActions bool)
 		Tone:  "mute",
 	})
 
-	// 5. Age and the payment window.
+	// 5. Age and the payment window. A terminal order has no window any more:
+	// printing "in 28 min" for a fulfilled or expired order reads as though it
+	// were still payable, which is how an operator chases a closed order.
 	r.Cells = append(r.Cells, cell{
 		Label:   "Window",
 		Class:   "c-age hide-xs",
-		Text:    humanUntil(o.ExpiresAt.Sub(now)),
+		Text:    windowText(o, now),
 		Tone:    "mute",
 		Numeric: false,
 		ClassN:  "",
 	})
 
 	if withActions {
-		deadline := humanUntil(o.ExpiresAt.Sub(now))
+		deadline := windowText(o, now)
 		r.Deadline = deadline
 		r.Actions = []action{
 			{Kind: "approve", Label: "Approve", Order: o.ID, Method: string(o.Method), CSRF: csrf, Confirm: "Approve " + o.Ref + " (" + amountFmt + " " + o.Currency + ")? This marks it paid and queued for delivery."},

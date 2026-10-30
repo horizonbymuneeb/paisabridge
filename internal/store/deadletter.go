@@ -263,9 +263,9 @@ func scanDeadLetter(r rowScanner) (*DeadLetter, error) {
 		return nil, fmt.Errorf("store: scan dead letter: %w", err)
 	}
 	dl.Body = []byte(body)
-	dl.CreatedAt, _ = time.Parse(TimeLayout, created)
-	dl.RetriedAt, _ = time.Parse(TimeLayout, retried)
-	dl.ResolvedAt, _ = time.Parse(TimeLayout, done)
+	dl.CreatedAt = mustParseTime(created)
+	dl.RetriedAt = mustParseTime(retried)
+	dl.ResolvedAt = mustParseTime(done)
 	dl.Resolved = done != ""
 	return &dl, nil
 }

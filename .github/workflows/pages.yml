@@ -1,0 +1,59 @@
+name: pages
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regenerate the site from src/ and fail if the output is stale
+        run: |
+          python3 site/build.py
+          if ! git diff --quiet -- site; then
+            echo "site/*.html is stale: run python3 site/build.py and commit"
+            git diff --stat -- site
+            exit 1
+          fi
+      - name: Check every internal link resolves to a file
+        run: |
+          python3 - <<'PY'
+          import re, pathlib, sys
+          root = pathlib.Path("site")
+          bad = []
+          for page in root.glob("*.html"):
+              for href in re.findall(r'href="([^"#?]+)', page.read_text()):
+                  if href.startswith(("http://", "https://", "mailto:")):
+                      continue
+                  if not (page.parent / href).exists():
+                      bad.append(f"{page.name} -> {href}")
+          if bad:
+              print("broken local links:"); [print(" ", b) for b in bad]; sys.exit(1)
+          print("all local links resolve")
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -33,8 +33,8 @@ import (
 	"github.com/horizonbymuneeb/paisabridge/internal/adapters/registry"
 	"github.com/horizonbymuneeb/paisabridge/internal/adminui"
 	"github.com/horizonbymuneeb/paisabridge/internal/api"
-	"github.com/horizonbymuneeb/paisabridge/internal/bot"
 	"github.com/horizonbymuneeb/paisabridge/internal/config"
+	"github.com/horizonbymuneeb/paisabridge/internal/integrations"
 	"github.com/horizonbymuneeb/paisabridge/internal/match"
 	"github.com/horizonbymuneeb/paisabridge/internal/metrics"
 	"github.com/horizonbymuneeb/paisabridge/internal/outbound"
@@ -115,12 +115,44 @@ func run() error {
 	}
 
 	// --- http ----------------------------------------------------------
+	// One context for the whole process: a SIGTERM during boot (a slow
+	// migration, a Telegram round-trip) must cancel instead of being ignored.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// --- integrations (Telegram + console-editable connections) ---------
+	// The manager owns the bot lifecycle so the console can replace a token
+	// without a redeploy. A token in the environment seeds the stored setting on
+	// first boot; after that the console is the source of truth.
+	integr, err := integrations.New(integrations.Config{
+		Store:       st,
+		BotStore:    botStore{st: st, w: w},
+		APIBase:     cfg.TelegramAPIBase,
+		CheckoutURL: cfg.PublicURL + "/checkout",
+		Logf:        func(f string, a ...any) { logger.Info(fmt.Sprintf(f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("integrations: %w", err)
+	}
+	if cfg.TelegramToken != "" {
+		if _, seen, _ := st.Integration(ctx, store.IntegrationTelegramToken); !seen {
+			if err := st.SetIntegration(ctx, store.IntegrationTelegramToken, cfg.TelegramToken); err != nil {
+				logger.Warn("could not seed the telegram token", "err", err)
+			}
+		}
+	}
+	if err := integr.Load(ctx); err != nil {
+		logger.Error("integrations load", "err", err)
+	}
+	defer integr.Shutdown()
+
 	// --- outbound notifications ----------------------------------------
 	// The merchant side of the contract: every customer-visible transition is
 	// pushed to the integrator, signed, with a stable delivery id.
 	var (
-		notify    func(context.Context, string, *types.Order)
-		redeliver func(context.Context, string) error
+		outboundNotify func(context.Context, string, *types.Order)
+		notify         func(context.Context, string, *types.Order)
+		redeliver      func(context.Context, string) error
 	)
 	if cfg.OutboundURL != "" {
 		sender, err := outbound.New(outbound.Config{
@@ -135,7 +167,7 @@ func run() error {
 		// order marked fulfilled must eventually reach the storefront even if
 		// the storefront was down for an hour.
 		sender.UseDeadLetter(deadLetterSink{st: st}, nil)
-		notify = func(ctx context.Context, event string, o *types.Order) {
+		outboundNotify = func(ctx context.Context, event string, o *types.Order) {
 			deliveryID := event + ":" + o.ID + ":" + string(o.Status)
 			if err := sender.Notify(ctx, event, deliveryID, o); err != nil {
 				logger.Error("outbound delivery failed", "event", event, "order", o.ID, "err", err)
@@ -208,10 +240,13 @@ func run() error {
 		if cfg.AdminToken == "" {
 			logger.Warn("admin console not started: PB_ADMIN_TOKEN is empty")
 		} else if ui, uiErr := adminui.New(adminui.Config{
-			Store:          st,
-			Wallet:         w,
-			AdminToken:     cfg.AdminToken,
-			InsecureCookie: cfg.AdminInsecureCookie,
+			Store:           st,
+			Wallet:          w,
+			AdminToken:      cfg.AdminToken,
+			InsecureCookie:  cfg.AdminInsecureCookie,
+			Connectors:      integrationsAdapter{m: integr},
+			OutboundEnabled: cfg.OutboundURL != "",
+			Rails:           railInfo(reg, cfg),
 		}); uiErr != nil {
 			logger.Error("admin console disabled", "err", uiErr)
 		} else if ui == nil {
@@ -239,6 +274,21 @@ func run() error {
 		logger.Info("metrics enabled", "path", "/metrics", "token_required", cfg.MetricsToken != "")
 	}
 
+	// --- customer notifications ----------------------------------------
+	// One hook drives both channels: the integrator's signed webhook and the
+	// Telegram push for orders bound to a chat (customer_phone = "tg:<id>").
+	// Either may be absent; a missing channel is silent, not an error.
+	notify = func(ctx context.Context, event string, o *types.Order) {
+		if outboundNotify != nil {
+			outboundNotify(ctx, event, o)
+		}
+		if b := integr.Bot(); b != nil {
+			if err := b.NotifyOrderStatus(ctx, o); err != nil {
+				logger.Warn("telegram order push failed", "order", o.ID, "err", err)
+			}
+		}
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           logRequests(logger, recorderFor(metricsReg), root),
@@ -247,9 +297,6 @@ func run() error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// --- expiry sweeper ------------------------------------------------
 	sweepDone := make(chan struct{})
@@ -260,27 +307,6 @@ func run() error {
 		}()
 	} else {
 		close(sweepDone)
-	}
-
-	// --- telegram bot --------------------------------------------------
-	// Long polling: no public URL and no webhook registration needed. The bot
-	// is optional; without a token the gateway runs headless.
-	if cfg.TelegramToken != "" {
-		tgBot, err := bot.New(bot.Config{
-			Token:       cfg.TelegramToken,
-			APIBase:     cfg.TelegramAPIBase,
-			CheckoutURL: cfg.PublicURL + "/checkout",
-		}, botStore{st: st, w: w})
-		if err != nil {
-			logger.Warn("telegram bot disabled", "err", err)
-		} else {
-			go func() {
-				logger.Info("telegram bot polling")
-				if err := tgBot.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-					logger.Error("telegram bot stopped", "err", err)
-				}
-			}()
-		}
 	}
 
 	errCh := make(chan error, 1)
@@ -557,6 +583,64 @@ func methodNames(ms []types.Method) []string {
 	out := make([]string, 0, len(ms))
 	for _, m := range ms {
 		out = append(out, string(m))
+	}
+	return out
+}
+
+// integrationsAdapter adapts integrations.Manager to the adminui.Connectors
+// interface. The console package must not import the integrations package (it
+// would drag the Telegram client into the UI's tests), so the translation lives
+// here at the wiring layer.
+type integrationsAdapter struct{ m *integrations.Manager }
+
+func (a integrationsAdapter) TelegramStatus(ctx context.Context) adminui.TelegramState {
+	st := a.m.Status(ctx)
+	return adminui.TelegramState{
+		Configured: st.Configured,
+		Running:    st.Running,
+		TokenTail:  st.TokenTail,
+		ChatID:     st.ChatID,
+		LastTestAt: st.LastTestAt,
+		LastError:  st.LastError,
+	}
+}
+
+func (a integrationsAdapter) SaveTelegram(ctx context.Context, token, chatID string) error {
+	return a.m.SaveTelegram(ctx, token, chatID)
+}
+
+func (a integrationsAdapter) TestTelegram(ctx context.Context) error {
+	return a.m.SendTest(ctx)
+}
+
+// railInfo describes the configured rails for the Connections screen. It is
+// derived from the registry the gateway actually built, so the screen cannot
+// claim a rail is live when its webhook would answer no_adapter.
+func railInfo(reg *registry.Registry, cfg *config.Config) []adminui.RailInfo {
+	if reg == nil {
+		return nil
+	}
+	type rail struct {
+		method types.Method
+		label  string
+		sig    string
+		note   string
+	}
+	all := []rail{
+		{types.MethodEasypaisa, "Easypaisa", "AES merchantHashedResp", "callback posts the hashed response; weak signature, documented as such"},
+		{types.MethodJazzCash, "JazzCash", "pp_SecureHash (HMAC-SHA256 over sorted pp_ fields)", "set the integrity salt from onboarding"},
+		{types.MethodNayaPay, "NayaPay", "X-Signature: HMAC-SHA256(webhook secret, raw body)", "can also re-query the merchant status API"},
+		{types.MethodSadaPay, "SadaPay", "HMAC header + six-digit verification code", "OTP products deliver the code only after fulfilment"},
+		{types.MethodBank, "Bank IBFT / Raast", "X-Paisabridge-Signature envelope HMAC", "credit alerts arrive through your own relay; never auto-fulfils"},
+		{types.MethodUSDT, "USDT (BEP-20 / TRC-20)", "relay envelope HMAC", "watcher confirms contract, receiver and confirmations"},
+		{types.MethodBinance, "Binance Pay", "HMAC-SHA256(timestamp + nonce + body)", "5 minute timestamp window, nonce replayed refused"},
+	}
+	out := make([]adminui.RailInfo, 0, len(all))
+	for _, r := range all {
+		out = append(out, adminui.RailInfo{
+			Method: string(r.method), Label: r.label, Signature: r.sig,
+			Enabled: reg.Supports(r.method), Note: r.note,
+		})
 	}
 	return out
 }

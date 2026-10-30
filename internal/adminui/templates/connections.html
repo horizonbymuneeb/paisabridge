@@ -1,0 +1,127 @@
+{{define "content.connections"}}{{$d := .Data}}
+<div class="phead">
+  <div>
+    <h1>Connections</h1>
+    <p class="lede">Where payment facts come from, and where they go. Nothing here changes order state; it changes who can talk to the gateway.</p>
+  </div>
+  <div class="meta">checked {{$d.Now.Format "2006-01-02 15:04"}} UTC</div>
+</div>
+
+{{if $d.Notice}}<div class="flash ok" role="status">{{$d.Notice}}</div>{{end}}
+{{if $d.Error}}<div class="flash bad" role="alert">{{$d.Error}}</div>{{end}}
+
+<div class="section">
+  <h2>Telegram <span class="hint">customer status, /order lookups, OTP delivery</span></h2>
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">
+        <svg class="ic" aria-hidden="true"><use href="#i-bolt"/></svg>
+        Bot
+      </span>
+      {{if $d.Telegram.Running}}
+        <span class="st st-ok">running</span>
+      {{else if $d.Telegram.Configured}}
+        <span class="st st-warn">configured, not running</span>
+      {{else}}
+        <span class="st st-mute">not configured</span>
+      {{end}}
+    </div>
+
+    <dl class="kv">
+      <dt>Token</dt>
+      <dd class="mono">{{if $d.Telegram.TokenTail}}{{$d.Telegram.TokenTail}} <span class="faint sm">stored, only the tail is shown</span>{{else}}<span class="faint">none</span>{{end}}</dd>
+      <dt>Chat id</dt>
+      <dd class="mono">{{if $d.Telegram.ChatID}}{{$d.Telegram.ChatID}}{{else}}<span class="faint">none — send /start to the bot, then paste the id</span>{{end}}</dd>
+      <dt>Last test</dt>
+      <dd>{{if not $d.Telegram.LastTestAt.IsZero}}{{$d.Telegram.LastTestAt.UTC.Format "2006-01-02 15:04:05"}} UTC{{else}}<span class="faint">never</span>{{end}}</dd>
+      {{if $d.Telegram.LastError}}<dt>Last error</dt><dd class="bad-text">{{$d.Telegram.LastError}}</dd>{{end}}
+    </dl>
+
+    <form method="post" action="connections/telegram" class="stack">
+      <input type="hidden" name="csrf" value="{{.Token}}">
+      <label>Bot token
+        <input type="password" name="token" autocomplete="off" spellcheck="false"
+               placeholder="{{if $d.Telegram.Configured}}replace token…{{else}}123456789:AA…{{end}}">
+        <small>Create one with @BotFather (/newbot). Saved tokens are validated with getMe before they are stored; leave empty and submit to turn the bot off.</small>
+      </label>
+      <label>Chat id
+        <input type="text" name="chat_id" inputmode="numeric" value="{{$d.Telegram.ChatID}}" placeholder="e.g. 123456789">
+        <small>The chat that receives test messages and order updates. A group id is negative, e.g. -1001234567890.</small>
+      </label>
+      <div class="row-actions">
+        <button class="btn btn-primary" type="submit">
+          <svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>Save and start</span>
+        </button>
+      </div>
+    </form>
+
+    <form method="post" action="connections/telegram/test" class="inline-form">
+      <input type="hidden" name="csrf" value="{{.Token}}">
+      <button class="btn" type="submit"{{if not $d.Telegram.Configured}} disabled{{end}}>
+        <svg class="ic" aria-hidden="true"><use href="#i-bolt"/></svg><span>Send test message</span>
+      </button>
+      <span class="faint sm">Sends one message to the chat id above, through the same code path a real order update uses.</span>
+    </form>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Inbound relays <span class="hint">e-mail, SMS and every payment rail</span></h2>
+  <p class="lede">Point each sender at the endpoint shown. Signed envelopes are explained in the docs; the console prints the endpoint so nothing has to be guessed.</p>
+  <div class="panel">
+    <table class="rows rows-long">
+      <thead>
+        <tr>
+          <th>Connector</th>
+          <th>Endpoint</th>
+          <th>Authentication</th>
+          <th>State</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range $d.Relays}}
+        <tr>
+          <td data-label="Connector">
+            <strong>{{.Name}}</strong>
+            <span class="cell sm faint">{{.Note}}</span>
+          </td>
+          <td data-label="Endpoint" class="mono">{{if eq .Kind "webhook"}}<span class="faint">{{.Endpoint}}</span>{{else}}{{.Method}} {{.Endpoint}}{{end}}</td>
+          <td data-label="Authentication" class="sm mono wrap">{{.Signature}}</td>
+          <td data-label="State">
+            {{if .Enabled}}<span class="st st-ok">live</span>{{else}}<span class="st st-mute">not configured</span>{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h2>How a bank alert becomes a payment</h2>
+  <div class="steps">
+    <div class="step">
+      <span class="step-n">1</span>
+      <div>
+        <strong>Your inbox receives the credit alert</strong>
+        <p class="sm">A Gmail filter, a Postmark inbound rule or an SMS forwarder — whatever already gets the alert.</p>
+      </div>
+    </div>
+    <div class="step">
+      <span class="step-n">2</span>
+      <div>
+        <strong>Your relay signs it and posts to the endpoint above</strong>
+        <p class="sm">The relay holds the shared secret and mints the envelope. The gateway never parses raw mail itself.</p>
+      </div>
+    </div>
+    <div class="step">
+      <span class="step-n">3</span>
+      <div>
+        <strong>The matcher resolves one order, or parks it for review</strong>
+        <p class="sm">An unsigned alert can only ever land in <a href="/queue">review</a> — never a delivery.</p>
+      </div>
+    </div>
+  </div>
+  <p class="sm faint">Mint a test envelope with <span class="mono">pbsend</span> from any shell — the same signing code the relay uses.</p>
+</div>
+{{end}}

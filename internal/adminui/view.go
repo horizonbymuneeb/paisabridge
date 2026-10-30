@@ -489,6 +489,8 @@ func templateFunctions() template.FuncMap {
 		"initials":    initials,
 		"pct":         pct,
 		"dash":        dashIfEmpty,
+		"half":        func(n int) int { return (n + 1) / 2 },
+		"even":        func(i int) bool { return i%2 == 0 },
 		"currencyOf":  func(cur string) string { return cur },
 		"offsetSign":  offsetSign,
 		"title":       strings.Title, // #nosec G103 -- used only for already-English labels

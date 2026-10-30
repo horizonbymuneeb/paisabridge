@@ -169,8 +169,9 @@ record and ships with the repo.
   URL required.
 - **Outbound webhooks** - every transition pushed to your storefront, signed,
   with a stable delivery id and bounded retries.
-- **Operator console** - server-rendered review queue on its own address; approve
-  a parked payment in one click, every decision lands in the order journal.
+- **Operator console** - server-rendered, own address: dashboard with a 14-day
+  order chart, review queue, orders, and a Connections screen that configures the
+  Telegram bot at runtime and prints every relay endpoint.
 - **Rate limiting and idempotency** - per-IP buckets per endpoint class, and
   retry-safe order creation, so a double-click cannot create two orders.
 - **Observability** - Prometheus `/metrics`, liveness and readiness split,
@@ -183,7 +184,8 @@ record and ships with the repo.
 |---|---|
 | ![Review queue](docs/media/admin-queue.png) | ![Dashboard](docs/media/admin-dashboard.png) |
 | **Review queue** — approve or reject a parked payment in one click; the optional tx reference binds the inbound transaction to the order | **Dashboard** — money in today, wallet-paid today, open order value, and the two queues that need a human |
-| ![Orders](docs/media/admin-orders.png) | ![Order detail](docs/media/admin-order-detail.png) |
+| ![Connections](docs/media/admin-connections.png) | ![Orders](docs/media/admin-orders.png) |
+| **Connections** — Telegram bot token (validated, stored masked, restartable without a redeploy) and every inbound relay endpoint with its signature scheme | **Orders** — dense rows, filter by status, search by ref or bank-statement transaction reference |
 | **Orders** — dense rows, filter by status, search by ref or bank-statement transaction reference | **Order detail** — every field plus the append-only journal of who changed what and why |
 
 The console is server-rendered with `html/template` and one hand-written CSS file:

@@ -13,6 +13,7 @@ out: admin-console.html
       <a href="#setup">Setup</a>
       <a href="#dashboard">Dashboard</a>
       <a href="#queue">Review queue</a>
+      <a href="#connections">Connections &amp; Telegram</a>
       <a href="#orders">Orders</a>
       <a href="#detail">Order detail</a>
       <a href="#notices">Unmatched payments</a>
@@ -102,6 +103,45 @@ export PB_ADMIN_ADDR="127.0.0.1:8081"
         <figcaption>Unmatched payments — reconcile against a statement</figcaption>
       </figure>
     </div>
+
+    <h2 id="connections">Connections &amp; Telegram</h2>
+    <p>
+      The connector screen is where the gateway is wired to the outside world: the
+      Telegram bot, the e-mail relay, the SMS relay, and every payment rail with its
+      exact endpoint. It never changes order state; it changes who can talk to the
+      gateway.
+    </p>
+    <figure>
+      <img src="media/admin-connections.png" alt="Connections screen: Telegram bot card with masked token, chat id and test button, then a table of inbound relays with endpoint, authentication scheme and live state." loading="lazy">
+      <figcaption>
+        Connections — the bot token is stored masked, and the relay table prints the
+        endpoint and signature scheme each sender must use.
+      </figcaption>
+    </figure>
+    <h3>Turning on the Telegram bot from the console</h3>
+    <ol>
+      <li>Create a bot with <a href="https://t.me/BotFather" rel="noreferrer">@BotFather</a> (<code>/newbot</code>) and copy the token.</li>
+      <li>Send <code>/start</code> to your new bot so a chat exists, then read the chat id from
+        <code>https://api.telegram.org/bot&lt;token&gt;/getUpdates</code>.</li>
+      <li>Paste both into the card and press <strong>Save and start</strong>. The token is
+        validated with <code>getMe</code> before it is stored, so a typo is rejected instead of
+        leaving the connector half-configured.</li>
+      <li>Press <strong>Send test message</strong>. It uses the same send path a real order
+        update uses, not a special-case test hook.</li>
+    </ol>
+    <div class="note">
+      <strong>Why the console can edit the token at all</strong>
+      <p>
+        A token in the database is a deliberate trade: the operator who just created a bot
+        should not need shell access, and the SQLite file already holds every order. The
+        console never renders a stored token back — it shows a masked tail and a replace
+        field — and clearing the field turns the bot off.
+      </p>
+    </div>
+    <p>
+      Orders bound to Telegram (<code>customer_phone: "tg:&lt;chat_id&gt;"</code>) get a status
+      push on every transition; buyers can also use <code>/order &lt;ref&gt;</code> in the chat.
+    </p>
 
     <h2 id="orders">Orders</h2>
     <p>

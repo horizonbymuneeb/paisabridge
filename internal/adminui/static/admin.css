@@ -819,22 +819,25 @@ td form .btn {
     padding: 0 12px 8px;
   }
 
+  /* Wrap the nav instead of hiding items behind a horizontal scroller: on a
+     phone an invisible scrollbar means "Connections" simply looked missing. */
   .nav {
     flex-direction: row;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    gap: 0 2px;
     padding: 0 6px;
-    scrollbar-width: none;
-  }
-
-  .nav::-webkit-scrollbar {
-    display: none;
   }
 
   .nav a {
     border-left: 0;
     border-bottom: 2px solid transparent;
-    padding: 7px 8px;
+    padding: 6px 7px;
     white-space: nowrap;
+    font-size: 12.5px;
+  }
+
+  .nav a > span:not(.count) {
+    display: inline;
   }
 
   .nav a[aria-current="page"] {
@@ -1217,4 +1220,1132 @@ select:focus-visible {
   * {
     transition: none !important;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Connections screen
+   A card is used only where the block is an editable unit (the bot); read-only
+   connector rows stay in the shared table so they line up with every other
+   table in the console.
+   --------------------------------------------------------------------------- */
+.card {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #fafafa;
+}
+
+.card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 600 13px/20px var(--sans);
+}
+
+.card-title .ic {
+  width: 15px;
+  height: 15px;
+  color: var(--ink-2);
+}
+
+.card-head .st {
+  margin-left: auto;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  gap: 0;
+  margin: 0;
+  padding: 6px 16px;
+}
+
+.kv dt {
+  padding: 7px 0;
+  color: var(--ink-3);
+  font: 600 11px/18px var(--sans);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  border-top: 1px solid var(--line);
+}
+
+.kv dd {
+  margin: 0;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.kv dt:first-of-type,
+.kv dd:first-of-type {
+  border-top: 0;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.stack label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font: 600 12px/18px var(--sans);
+}
+
+.stack input {
+  font: 400 13px/20px var(--mono);
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: #fff;
+  max-width: 460px;
+}
+
+.stack small,
+.stack .faint {
+  font: 400 11.5px/17px var(--sans);
+  color: var(--ink-3);
+  font-weight: 400;
+  max-width: 62ch;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 0 16px 16px;
+}
+
+.btn[disabled] {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.flash {
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--ink-3);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin: 0 0 18px;
+  font-size: 13px;
+  background: var(--card);
+}
+
+.flash.ok {
+  border-left-color: var(--ok);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.flash.bad {
+  border-left-color: var(--bad);
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.bad-text {
+  color: var(--bad);
+}
+
+.wrap {
+  word-break: break-word;
+}
+
+/* Numbered steps: a rail of small counters, not a decorative illustration. */
+.steps {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+.step {
+  display: flex;
+  gap: 13px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.step:last-child {
+  border-bottom: 0;
+}
+
+.step-n {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  font: 600 11px/1 var(--mono);
+  color: var(--ink-2);
+  background: #fff;
+}
+
+.step p {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+}
+
+@media (max-width: 640px) {
+  .kv {
+    grid-template-columns: 1fr;
+    padding: 4px 14px;
+  }
+  .kv dt {
+    padding-bottom: 0;
+    border-top: 1px solid var(--line);
+  }
+  .kv dd {
+    border-top: 0;
+    padding-top: 2px;
+  }
+  .stack input {
+    max-width: 100%;
+  }
+}
+
+/* The connector table carries long signature strings; on a narrow screen the
+   label/value stack must break inside a word, not widen the page. */
+.panel table td,
+.panel table th {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .kv dd,
+  .panel table td {
+    min-width: 0;
+  }
+  .step p {
+    max-width: 100%;
+  }
+}
+
+/* Connector rows hold a name, a sentence and a signature string. The default
+   stacked row puts the label left and the value right, which squeezes a long
+   name into a two-character column; these rows stack the label above the value
+   instead. */
+@media (max-width: 720px) {
+  .rows.rows-long td {
+    display: block;
+    padding: 5px 12px;
+  }
+
+  .rows.rows-long td::before {
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .rows.rows-long td .cell {
+    display: block;
+  }
+}
+
+/* ===========================================================================
+   Shell v2 — sidebar, top bar, page head, cards
+   The console reads as one product: a fixed rail for navigation, a slim bar
+   for context and one card style for every block of content.
+   =========================================================================== */
+.shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.side {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100vh;
+  padding: 14px 10px 12px;
+  border-right: 1px solid var(--line);
+  background: #f7f7f6;
+}
+
+.side .brand {
+  padding: 0 4px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.nav-label {
+  margin: 8px 0 3px;
+  padding: 0 10px;
+  color: var(--ink-3);
+  font: 600 10px/16px var(--sans);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.nav a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  color: var(--ink-2);
+  font-size: 13px;
+  transition: background-color 110ms ease, color 110ms ease;
+}
+
+.nav a:hover {
+  background: #efefee;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.nav a[aria-current="page"] {
+  background: #fff;
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 2px rgba(0, 0, 0, .03);
+}
+
+.nav a .ic {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+}
+
+.nav a[aria-current="page"] .ic {
+  color: var(--accent);
+}
+
+.nav .count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink-2);
+  font: 600 10.5px/16px var(--mono);
+  text-align: center;
+}
+
+.nav .count.warn {
+  border-color: #e5cfa8;
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.side-foot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.gateway-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+.gateway-state .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.gateway-state .mono {
+  margin-left: auto;
+  font-size: 10.5px;
+}
+
+.btn-block {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.main-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 46px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(251, 251, 250, .92);
+  backdrop-filter: saturate(1.2) blur(6px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.crumbs .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.crumbs .sep {
+  color: var(--line-strong);
+}
+
+.crumbs .here {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.clock {
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+.main {
+  padding: 22px 24px 40px;
+  min-width: 0;
+}
+
+/* Page head: title, one-line explanation, and a right-hand meta column. The
+   hairline under it separates context from content without a card. */
+.phead {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  padding-bottom: 14px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.phead > div:first-child {
+  min-width: 0;
+}
+
+.phead h1 {
+  margin: 0 0 4px;
+  font: 600 22px/30px var(--sans);
+  letter-spacing: -.015em;
+}
+
+.phead .lede {
+  margin: 0;
+  max-width: 74ch;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.phead .meta {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--ink-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Section: a small uppercase heading with an optional right-hand hint. */
+.section {
+  margin: 0 0 26px;
+}
+
+.section > h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 9px;
+  font: 600 11px/18px var(--sans);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.section > h2 .hint {
+  margin-left: auto;
+  color: var(--ink-3);
+  font: 400 11.5px/18px var(--sans);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Panels are cards: one border, no shadow, square corners. */
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+.panel > p {
+  margin: 12px 16px;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 34px 20px;
+  text-align: center;
+}
+
+.empty .ic {
+  width: 26px;
+  height: 26px;
+  color: var(--line-strong);
+}
+
+.empty strong {
+  font: 600 14px/22px var(--sans);
+}
+
+.empty span {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  max-width: 52ch;
+}
+
+/* Filter forms sit directly under the page head, aligned to the card edge. */
+.filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field > span {
+  color: var(--ink-3);
+  font: 600 10.5px/16px var(--sans);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select {
+  font: 400 13px/20px var(--sans);
+  padding: 6px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: #fff;
+  min-width: 180px;
+}
+
+.field.grow {
+  flex: 1 1 260px;
+}
+
+.field.grow input {
+  width: 100%;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+@media (max-width: 860px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .side {
+    position: static;
+    height: auto;
+    flex-direction: column;
+    padding-bottom: 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    gap: 10px;
+  }
+  .side .brand {
+    padding-bottom: 8px;
+    border-bottom: 0;
+  }
+  .nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0 2px;
+    overflow: visible;
+  }
+  .nav-label {
+    flex: 0 0 100%;
+    margin: 4px 0 0;
+  }
+  .nav a {
+    padding: 6px 8px;
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+  .side-foot {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 8px;
+  }
+  .btn-block {
+    width: auto;
+  }
+  .topbar {
+    height: auto;
+    min-height: 40px;
+    padding: 6px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .clock {
+    display: none;
+  }
+  .main {
+    padding: 16px 14px 32px;
+  }
+  .phead {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .phead .meta {
+    margin-left: 0;
+  }
+  .btn-row {
+    margin-left: 0;
+    width: 100%;
+  }
+  .field input,
+  .field select {
+    min-width: 0;
+    width: 100%;
+  }
+  .field {
+    flex: 1 1 100%;
+  }
+}
+
+/* ===========================================================================
+   v3 visual pass — soft surfaces
+   The console now uses one rounded surface per block, a very light page ground
+   and a single shadow token. Structure (hairlines, density) stays: the softness
+   is in the corners and the ground, not in the type.
+   =========================================================================== */
+:root {
+  --bg: #f4f5f4;
+  --surface: #ffffff;
+  --surface-2: #fafaf9;
+  --line: #e8e9e7;
+  --line-strong: #d9dbd8;
+  --ink: #14171a;
+  --ink-2: #565d63;
+  --ink-3: #8b9197;
+  --accent: #1f6feb;
+  --accent-soft: #eef3fd;
+  --r-card: 12px;
+  --r-ctl: 8px;
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .05);
+  --shadow-2: 0 1px 2px rgba(16, 24, 40, .05), 0 4px 12px rgba(16, 24, 40, .06);
+}
+
+body {
+  background: var(--bg);
+}
+
+.side {
+  background: #f0f1f0;
+  border-right: 1px solid var(--line);
+  padding: 14px 12px 12px;
+  gap: 12px;
+}
+
+.side .brand {
+  padding: 2px 6px 12px;
+}
+
+.brand .mark {
+  border-radius: 9px;
+  border-color: var(--line);
+  background: #fff;
+  box-shadow: var(--shadow-1);
+  color: var(--accent);
+}
+
+.brand .name {
+  font-size: 14px;
+  letter-spacing: -.01em;
+}
+
+.brand .sub {
+  color: var(--ink-3);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+/* Sidebar search: a real form that goes to the orders list, so it works
+   without JavaScript and lands on a page that can show a result. */
+.side-search {
+  position: relative;
+  margin: 0 2px;
+}
+
+.side-search .ic {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+.side-search input {
+  width: 100%;
+  padding: 8px 10px 8px 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: #fff;
+  font: 400 12.5px/18px var(--sans);
+  box-shadow: var(--shadow-1);
+}
+
+.side-search input::placeholder {
+  color: var(--ink-3);
+}
+
+.nav-label {
+  margin: 10px 0 4px;
+  padding: 0 8px;
+  font-size: 9.5px;
+  letter-spacing: .11em;
+}
+
+.nav a {
+  border-radius: var(--r-ctl);
+  padding: 7px 9px;
+  font-size: 12.5px;
+}
+
+.nav a:hover {
+  background: rgba(255, 255, 255, .6);
+}
+
+.nav a[aria-current="page"] {
+  background: #fff;
+  box-shadow: var(--shadow-1);
+}
+
+.nav a .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.gateway-state {
+  padding: 0 4px;
+  font-size: 11px;
+}
+
+.btn {
+  border-radius: var(--r-ctl);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-1);
+  font-weight: 500;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.btn-quiet {
+  background: #fff;
+}
+
+.btn-primary {
+  background: #14171a;
+  border-color: #14171a;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #000;
+}
+
+/* Top bar: breadcrumb left, actions right, same soft ground as the page. */
+.topbar {
+  background: rgba(244, 245, 244, .9);
+  border-bottom: 1px solid var(--line);
+}
+
+.main {
+  padding: 24px 26px 44px;
+}
+
+.phead {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 18px;
+}
+
+.phead h1 {
+  font-size: 23px;
+  line-height: 30px;
+}
+
+.phead .meta {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: var(--shadow-1);
+}
+
+/* Stat cards: rounded, shadowed, icon in a soft square, figure large. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  border: 0;
+  background: none;
+  overflow: visible;
+}
+
+.stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 18px 15px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.stat-icon {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.stat-icon .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.stat-label {
+  color: var(--ink-2);
+  font: 500 11.5px/18px var(--sans);
+  letter-spacing: .01em;
+  text-transform: none;
+}
+
+.stat .figure {
+  margin: 8px 0 4px;
+  font: 600 26px/32px var(--mono);
+  letter-spacing: -.02em;
+}
+
+.stat .figure .u {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
+
+.stat .note {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 16px;
+}
+
+.section > h2 {
+  font-size: 12px;
+  letter-spacing: .02em;
+  text-transform: none;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.section > h2 .hint {
+  color: var(--ink-3);
+}
+
+/* Cards and panels share one rounded surface. */
+.panel,
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.card-title {
+  font: 600 13px/20px var(--sans);
+}
+
+.card-sub {
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+.card-meta {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+/* Tables inside cards: no first-row border under the head shadow. */
+.panel table,
+.card table {
+  border: 0;
+}
+
+thead th {
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-size: 10.5px;
+  letter-spacing: .06em;
+}
+
+tbody tr:hover {
+  background: #fbfbfa;
+}
+
+/* Chart */
+.chart-body {
+  display: flex;
+  gap: 10px;
+  padding: 16px 16px 6px;
+}
+
+.chart-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  width: 26px;
+  padding-bottom: 18px;
+  color: var(--ink-3);
+  font: 500 10px/1 var(--mono);
+}
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 1 1 auto;
+  height: 150px;
+}
+
+.bar-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  height: 100%;
+  min-width: 0;
+}
+
+.bar-track {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  border-bottom: 1px solid var(--line);
+}
+
+.bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent);
+  opacity: .85;
+}
+
+.bar.zero {
+  background: var(--line-strong);
+  opacity: .55;
+}
+
+.bar-label {
+  display: block;
+  padding-top: 5px;
+  color: var(--ink-3);
+  font: 500 9.5px/12px var(--mono);
+  text-align: center;
+}
+
+.chart-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px 13px;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  border-top: 1px solid var(--line);
+}
+
+.chart-foot .faint {
+  margin-left: auto;
+  color: var(--ink-3);
+}
+
+.dot-key {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: .85;
+}
+
+/* Tables: soften the frame now that the card owns it. */
+.panel .tw,
+.card .tw {
+  overflow-x: auto;
+}
+
+@media (max-width: 860px) {
+  .side {
+    background: #f0f1f0;
+    padding: 12px;
+  }
+  .side-search {
+    order: 2;
+  }
+  .chart {
+    height: 120px;
+    gap: 4px;
+  }
+  .chart-y {
+    display: none;
+  }
+  .chart-body {
+    padding: 14px 12px 4px;
+  }
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+  .stat .figure {
+    font-size: 24px;
+    line-height: 30px;
+  }
+}
+
+/* Status board: one pill per status, count right-aligned. A dot plus a word, so
+   the state survives a monochrome screenshot. */
+.board {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+}
+
+.board-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 132px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.board-item:hover {
+  text-decoration: none;
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-1);
+}
+
+.board-item .v {
+  margin-left: auto;
+  font: 600 14px/18px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.board-item .st {
+  font-weight: 500;
 }

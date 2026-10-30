@@ -97,6 +97,7 @@ li { margin: 4px 0; }
 .lede-2 { color: var(--ink-2); }
 
 code, pre, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+article code, .doc code { overflow-wrap: anywhere; }
 code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; font-size: 13.2px; }
 pre {
   background: var(--card); border: 1px solid var(--line); border-radius: 5px;

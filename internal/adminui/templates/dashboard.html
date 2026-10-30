@@ -10,12 +10,16 @@
 {{template "money" $d}}
 
 <div class="section">
+  {{template "chart" $d}}
+</div>
+
+<div class="section">
   <h2>Status <span class="hint">all orders, newest 500</span></h2>
   <div class="panel">
     <div class="board">
       {{range $d.Counts}}
-      <a href="/orders?status={{.Key}}">
-        <span class="k">{{.Label}}</span>
+      <a href="/orders?status={{.Key}}" class="board-item">
+        <span class="st st-{{statusTone .Status}}">{{.Label}}</span>
         <span class="v">{{.Count}}</span>
       </a>
       {{end}}

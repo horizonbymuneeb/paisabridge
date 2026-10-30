@@ -18,6 +18,9 @@
 // plain http.StripPrefix works. Inside that prefix:
 //
 //	GET|POST /login   token form; on success sets the admin cookie
+//	GET      /connections          connector overview (Telegram, e-mail, SMS, rails)
+//	POST     /connections/telegram        save bot token + chat id
+//	POST     /connections/telegram/test   send one test message
 //	POST     /logout  clears the cookie
 //	GET      /        dashboard
 //	GET      /queue   review queue (also accepts POST /queue for the buttons)
@@ -97,6 +100,19 @@ type Config struct {
 	// only when the UI is served over plain HTTP on localhost, because browsers
 	// silently reject a Secure cookie on http:// origins and login would loop.
 	InsecureCookie bool
+	// Rails describes the payment rails this deployment has configured, so the
+	// Connections screen prints the real endpoint and honesty about whether
+	// each one is live. Empty means "not reported".
+	Rails []RailInfo
+	// OutboundEnabled reports whether order transitions are pushed to a
+	// storefront URL.
+	OutboundEnabled bool
+
+	// Connectors, when set, backs the Connections screen: Telegram
+	// credentials that can be edited at runtime, and the relay endpoints the
+	// operator has to point their e-mail/SMS forwarding at.
+	Connectors Connectors
+
 	// Now is optional clock injection for tests and for the "age" columns.
 	Now func() time.Time
 	// Logger is optional (defaults to slog.Default()).
@@ -105,6 +121,15 @@ type Config struct {
 
 // Server is the review UI handler. One Server owns one route table; mount it
 // under a prefix with http.StripPrefix.
+// RailInfo is one payment rail as the console should describe it.
+type RailInfo struct {
+	Method    string // e.g. "bank"
+	Label     string // e.g. "Bank IBFT / Raast"
+	Signature string // one line on how a webhook for this rail is authenticated
+	Enabled   bool   // false when the gateway has no secret for it
+	Note      string
+}
+
 type Server struct {
 	cfg  Config
 	mux  *http.ServeMux
@@ -177,6 +202,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /orders/{id}", s.handleOrder)
 
 	m.HandleFunc("GET /notices", s.handleNotices)
+	m.HandleFunc("GET /connections", s.handleConnections)
+	m.HandleFunc("POST /connections/telegram", s.handleTelegramSave)
+	m.HandleFunc("POST /connections/telegram/test", s.handleTelegramTest)
 
 	// Anything else under the mount is a 404 through the handler below rather
 	// than the mux's bare text response, so the shell stays consistent.
@@ -298,14 +326,15 @@ func (s *Server) csrfOK(r *http.Request) bool {
 
 // chrome is the part of the page model every template needs.
 type chrome struct {
-	Title     string
-	Nav       string // active nav key
-	Token     string // CSRF token for forms on this page
-	Version   string
-	Now       string // render timestamp, fixed-width UTC
-	Review    int    // review-queue badge
-	Unmatched int    // unmatched-payment badge
-	CSRFField string
+	Title      string
+	Nav        string // active nav key
+	Token      string // CSRF token for forms on this page
+	Version    string
+	Now        string // render timestamp, fixed-width UTC
+	Review     int    // review-queue badge
+	Unmatched  int    // unmatched-payment badge
+	NeedsSetup int    // connectors that are not configured yet
+	CSRFField  string
 }
 
 type page struct {

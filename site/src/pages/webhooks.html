@@ -22,6 +22,7 @@ out: webhooks.html
     </div>
     <div class="grp">
       <p class="lbl">Outbound</p>
+      <a href="#telegram">Telegram bot</a>
       <a href="#outbound">Storefront webhook</a>
       <a href="#deadletter">Dead letters</a>
     </div>
@@ -266,6 +267,27 @@ export PB_USDT_CHAIN="56"</code></pre>
       stamp, and the inbound envelope must present the same stamp. It is labelled as an
       in-house protocol in the code, not as a Payoneer signature.
     </p>
+
+    <h2 id="telegram">Telegram bot (customer + operator channel)</h2>
+    <p>
+      The bot is a notification channel, not a webhook: it long-polls Telegram, so it needs
+      no public URL and no inbound port. Configure it from the console
+      (<a href="admin-console.html#connections">Connections</a>) or seed it with
+      <code>PB_TELEGRAM_TOKEN</code>; a token saved in the console wins on the next boot.
+    </p>
+    <pre><code>TURN ON:  console → Connections → paste token → Save and start
+VERIFY:   console → Send test message
+BUYER:    /order &lt;ref&gt;          (order status and payment window)
+OWNER:    /start                (subscribe the chat to order events)</code></pre>
+    <table>
+      <thead><tr><th>Property</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Transport</td><td>long polling; no webhook registration, no public URL</td></tr>
+        <tr><td>Credential</td><td>validated with <code>getMe</code> before it is stored</td></tr>
+        <tr><td>Order push</td><td>orders with <code>customer_phone: "tg:&lt;chat_id&gt;"</code> get a message per transition</td></tr>
+        <tr><td>OTP delivery</td><td>the OTP is sent only after the order is fulfilled</td></tr>
+      </tbody>
+    </table>
 
     <h2 id="outbound">Outbound webhook → your storefront</h2>
     <p>

@@ -1,6 +1,8 @@
-{{/* Layout: every page defines "content" and is rendered through this shell.
-     Only the third-party interface of the page model lives here: no data
-     access, no logic beyond the nav state. */}}
+{{/* Layout: the shell every page is rendered through.
+     Structure, top to bottom: a fixed sidebar (brand, grouped nav, gateway
+     status + sign out) and a main column with a slim top bar and the page
+     body. No data access and no logic beyond nav state: handlers decide the
+     numbers, templates decide where they sit. */}}
 {{define "layout"}}<!doctype html>
 <html lang="en">
 <head>
@@ -17,9 +19,9 @@
   <aside class="side">
     <div class="brand">
       <span class="mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+        <svg viewBox="0 0 32 32" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
           <path d="M6 21c4.5 0 6.5-3 9-8s5-8 9-8"/>
-          <circle cx="6" cy="21" r="2.4" fill="currentColor" stroke="none"/>
+          <circle cx="6" cy="21" r="2.6" fill="currentColor" stroke="none"/>
         </svg>
       </span>
       <span class="brand-text">
@@ -27,7 +29,15 @@
         <span class="sub">operator console</span>
       </span>
     </div>
+
+    <form class="side-search" method="get" action="/orders" role="search">
+      <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+      <label class="skip" for="q-global">Search orders</label>
+      <input id="q-global" type="search" name="q" placeholder="Search orders…" autocomplete="off">
+    </form>
+
     <nav class="nav" aria-label="Sections">
+      <p class="nav-label">Operate</p>
       <a href="/"{{if eq .Nav "dashboard"}} aria-current="page"{{end}}>
         <svg class="ic" aria-hidden="true"><use href="#i-dashboard"/></svg><span>Dashboard</span>
       </a>
@@ -42,41 +52,52 @@
         <svg class="ic" aria-hidden="true"><use href="#i-notices"/></svg><span>Notices</span>
         {{if .Unmatched}}<span class="count warn" aria-label="{{.Unmatched}} unmatched">{{.Unmatched}}</span>{{end}}
       </a>
+
+      <p class="nav-label">Configure</p>
+      <a href="/connections"{{if eq .Nav "connections"}} aria-current="page"{{end}}>
+        <svg class="ic" aria-hidden="true"><use href="#i-plug"/></svg><span>Connections</span>
+        {{if .NeedsSetup}}<span class="count warn" aria-label="{{.NeedsSetup}} connectors need setup">{{.NeedsSetup}}</span>{{end}}
+      </a>
     </nav>
+
     <div class="side-foot">
-      <form method="post" action="/logout" class="logout">
+      <div class="gateway-state">
+        <span class="dot" aria-hidden="true"></span>
+        <span>gateway live</span>
+        <span class="mono">{{.Version}}</span>
+      </div>
+      <form method="post" action="/logout">
         <input type="hidden" name="csrf" value="{{.Token}}">
-        <button class="btn btn-quiet" type="submit">
+        <button class="btn btn-quiet btn-block" type="submit">
           <svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><span>Sign out</span>
         </button>
       </form>
     </div>
   </aside>
-  <main class="main" id="main">
-    {{body .}}
-    <div class="foot">
-      <span class="foot-item"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>manual review leaves an event in the order journal</span>
-      <span class="foot-item"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>{{.Now}}</span>
-      <span class="foot-item mono">{{.Version}}</span>
+
+  <div class="main-wrap">
+    <div class="topbar">
+      <span class="crumbs">
+        <svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>
+        <span>operator console</span>
+        <span class="sep" aria-hidden="true">/</span>
+        <span class="here">{{.Title}}</span>
+      </span>
+      <span class="topbar-right">
+        {{/* Deliberately no external links: the console must work on a host with
+             no outbound network, and a test pins that (no CDN, no docs site). */}}
+        <a class="btn btn-quiet btn-sm" href=".">
+          <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg><span>Reload</span>
+        </a>
+        <span class="clock mono" title="render time, UTC">{{.Now}}</span>
+      </span>
     </div>
-  </main>
+
+    <main class="main" id="main">
+      {{body .}}
+    </main>
+  </div>
 </div>
-{{if eq .Nav "queue"}}{{template "confirm" .}}{{end}}
 </body>
 </html>
 {{end}}
-
-{{/* One small script, only for the destructive-action confirmation. The forms
-     submit normally without it; this just asks first. */}}
-{{define "confirm"}}<script>
-(function () {
-  var btns = document.querySelectorAll('button[data-confirm]');
-  for (var i = 0; i < btns.length; i++) {
-    btns[i].addEventListener('click', function (e) {
-      if (!window.confirm(this.getAttribute('data-confirm'))) {
-        e.preventDefault();
-      }
-    });
-  }
-})();
-</script>{{end}}

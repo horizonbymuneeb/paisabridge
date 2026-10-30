@@ -1,13 +1,13 @@
 {{/* Shared fragments. Everything here is presentation only: the handlers
      decide the numbers, these templates decide where they sit. */}}
 
-{{/* Money strip: three stat cards sharing one hairline frame. Icons are the
-     same family as the nav, so the page reads as one console rather than a
-     dashboard bolted onto a table. */}}
+{{/* Money strip: three stat cards sharing one frame. Icon in a soft square,
+     label above, figure large, one line of context under it. */}}
 {{define "money"}}
 <div class="stat-grid">
   <div class="stat">
-    <span class="label"><svg class="ic" aria-hidden="true"><use href="#i-bank"/></svg>Money in today</span>
+    <span class="stat-icon"><svg class="ic" aria-hidden="true"><use href="#i-bank"/></svg></span>
+    <span class="stat-label">Money in today</span>
     {{if .In.Totals}}
       {{range .In.Totals}}
       <span class="figure">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
@@ -20,7 +20,8 @@
     </span>
   </div>
   <div class="stat">
-    <span class="label"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg>Wallet-paid today</span>
+    <span class="stat-icon"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg></span>
+    <span class="stat-label">Wallet-paid today</span>
     {{if .In.Paid}}
       {{range .In.Paid}}
       <span class="figure">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
@@ -31,7 +32,8 @@
     <span class="note">internal transfer, not new money at the door</span>
   </div>
   <div class="stat">
-    <span class="label"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>Open order value</span>
+    <span class="stat-icon"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></span>
+    <span class="stat-label">Open order value</span>
     {{if .OpenValue}}
       {{range .OpenValue}}
       <span class="figure">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
@@ -40,6 +42,40 @@
       <span class="figure faint">0.00</span>
     {{end}}
     <span class="note">{{.Open}} open, not yet settled</span>
+  </div>
+</div>
+{{end}}
+
+{{/* Fourteen-day order chart. Bars are plain SVG rectangles, sized from the
+     pre-computed percentage, so the page needs no JavaScript and no chart
+     library. */}}
+{{define "chart"}}{{$d := .}}
+<div class="card chart-card">
+  <div class="card-head">
+    <span class="card-title">Orders created</span>
+    <span class="card-sub">last 14 days · UTC</span>
+    <span class="card-meta">{{$d.ChartTotal}} in window · peak {{$d.ChartMax}}/day</span>
+  </div>
+  <div class="chart-body">
+    <div class="chart-y" aria-hidden="true">
+      <span>{{$d.ChartMax}}</span>
+      <span>{{half $d.ChartMax}}</span>
+      <span>0</span>
+    </div>
+    <div class="chart">
+      {{range $i, $b := $d.Chart}}
+      <div class="bar-col" title="{{$b.Count}} orders">
+        <div class="bar-track">
+          <div class="bar{{if eq $b.Count 0}} zero{{end}}" style="height:{{$b.Height}}%"></div>
+        </div>
+        {{if even $i}}<span class="bar-label">{{$b.Label}}</span>{{else}}<span class="bar-label">&nbsp;</span>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+  <div class="chart-foot">
+    <span><span class="dot-key"></span>orders created</span>
+    <span class="faint">bars are scaled to the busiest day in the window</span>
   </div>
 </div>
 {{end}}
@@ -60,9 +96,6 @@
   </tr>
 </thead>
 {{end}}
-
-{{/* One order row. The cell order matches tableHead exactly; columns that are
-     dropped on small screens are dropped here, never squeezed. */}}
 {{define "orderRow"}}{{$r := .}}
 <tr id="{{$r.ID}}">
   {{range $i, $c := $r.Cells}}
@@ -93,19 +126,15 @@
       <input type="text" name="txn_ref" value="" placeholder="txn ref"
              aria-label="Transaction reference" autocomplete="off" spellcheck="false">
       <button class="btn btn-primary" type="submit" name="action" value="approve"
-              data-confirm="{{(index $r.Actions 0).Confirm}}">Approve</button>
+              data-confirm="{{(index $r.Actions 0).Confirm}}">
+        <svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>Approve</span>
+      </button>
       <button class="btn btn-quiet" type="submit" name="action" value="reject"
-              data-confirm="{{(index $r.Actions 1).Confirm}}">Reject</button>
+              data-confirm="{{(index $r.Actions 1).Confirm}}">
+        <svg class="ic" aria-hidden="true"><use href="#i-close"/></svg><span>Reject</span>
+      </button>
     </form>
   </td>
   {{end}}
 </tr>
-{{end}}
-
-{{/* Empty state with a next step, so a blank screen is still informative. */}}
-{{define "empty"}}
-<div class="empty">
-  <strong>{{.Title}}</strong>
-  {{.Body}}
-</div>
 {{end}}

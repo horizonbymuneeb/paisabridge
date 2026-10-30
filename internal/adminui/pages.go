@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/horizonbymuneeb/paisabridge/internal/store"
 	"github.com/horizonbymuneeb/paisabridge/internal/types"
@@ -66,14 +67,38 @@ func (s *Server) chromeFor(r *http.Request, ctx context.Context, title, nav stri
 	if notices, err := s.cfg.Store.ListNotices(ctx, "unmatched", 500); err == nil {
 		unmatched = len(notices)
 	}
+	// One badge for the Connections nav: every connector the operator still has
+	// to wire, so a fresh install does not look "done" while nothing can be
+	// received.
+	// Count only the connectors a working deployment needs: the bot, the bank
+	// relay, and the outbound webhook. Counting every optional rail would show
+	// a permanent "6" on a perfectly configured single-rail install, and a badge
+	// that never clears stops being read.
+	needs := 0
+	if s.cfg.Connectors != nil {
+		if !s.cfg.Connectors.TelegramStatus(ctx).Configured {
+			needs++
+		}
+	} else {
+		needs++
+	}
+	for _, rail := range s.cfg.Rails {
+		if !rail.Enabled && rail.Method == "bank" {
+			needs++
+		}
+	}
+	if !s.cfg.OutboundEnabled {
+		needs++
+	}
 	return chrome{
-		Title:     title,
-		Nav:       nav,
-		Token:     s.csrfToken(s.session(r)),
-		Version:   versionString(),
-		Now:       s.now().UTC().Format("2006-01-02 15:04:05 MST"),
-		Review:    n,
-		Unmatched: unmatched,
+		Title:      title,
+		Nav:        nav,
+		NeedsSetup: needs,
+		Token:      s.csrfToken(s.session(r)),
+		Version:    versionString(),
+		Now:        s.now().UTC().Format("2006-01-02 15:04:05 MST"),
+		Review:     n,
+		Unmatched:  unmatched,
 	}
 }
 
@@ -156,7 +181,12 @@ type errorPage struct {
 // dashboardData answers three questions: what is waiting for a human, what
 // moved today, and how much money is sitting in open orders right now.
 type dashboardData struct {
-	Orders       int
+	Orders int
+	// Chart is the last 14 UTC days of order creation, oldest first: the one
+	// number an operator reads before deciding whether today is normal.
+	Chart        []chartBar
+	ChartMax     int
+	ChartTotal   int
 	Review       int
 	ReviewValue  []moneyTotals
 	In           inboundToday
@@ -195,6 +225,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	now := s.now().UTC()
 
 	d := dashboardData{Orders: len(orders), Review: counts.review()}
+	d.Chart, d.ChartMax, d.ChartTotal = chart14(orders, now)
 	open := map[string]*moneyTotals{}
 	reviewVal := map[string]*moneyTotals{}
 	for _, o := range orders {
@@ -652,4 +683,51 @@ func flash(path, msg, ref, detail string) string {
 		v.Set("detail", detail)
 	}
 	return path + "?" + v.Encode()
+}
+
+// chartBar is one day in the dashboard chart.
+type chartBar struct {
+	// Label is the day number, printed under every other bar.
+	Label string
+	// Count is orders created that day.
+	Count int
+	// Height is Count as a percentage of the tallest bar, 0 when empty.
+	Height int
+}
+
+// chart14 buckets the newest 500 orders into the last 14 UTC days. It is
+// deliberately a window, not lifetime totals: the dashboard answers "is today
+// normal", and a lifetime chart would flatten that answer to nothing.
+func chart14(orders []*types.Order, now time.Time) ([]chartBar, int, int) {
+	start := now.UTC().Truncate(24*time.Hour).AddDate(0, 0, -13)
+	bars := make([]chartBar, 14)
+	for i := range bars {
+		day := start.AddDate(0, 0, i)
+		bars[i].Label = day.Format("2")
+	}
+	total := 0
+	for _, o := range orders {
+		if o.CreatedAt.IsZero() {
+			continue
+		}
+		day := o.CreatedAt.UTC().Truncate(24 * time.Hour)
+		idx := int(day.Sub(start).Hours() / 24)
+		if idx < 0 || idx >= len(bars) {
+			continue
+		}
+		bars[idx].Count++
+		total++
+	}
+	max := 0
+	for _, b := range bars {
+		if b.Count > max {
+			max = b.Count
+		}
+	}
+	if max > 0 {
+		for i := range bars {
+			bars[i].Height = bars[i].Count * 100 / max
+		}
+	}
+	return bars, max, total
 }

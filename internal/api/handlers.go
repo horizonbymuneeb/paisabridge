@@ -12,6 +12,7 @@ import (
 	"github.com/horizonbymuneeb/paisabridge/internal/match"
 	"github.com/horizonbymuneeb/paisabridge/internal/store"
 	"github.com/horizonbymuneeb/paisabridge/internal/types"
+	"github.com/horizonbymuneeb/paisabridge/internal/version"
 	"github.com/horizonbymuneeb/paisabridge/internal/wallet"
 )
 
@@ -24,9 +25,10 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	resp := map[string]any{
-		"status": "ok",
-		"time":   s.now().UTC().Format(time.RFC3339Nano),
-		"db":     "ok",
+		"status":  "ok",
+		"version": version.Get(),
+		"time":    s.now().UTC().Format(time.RFC3339Nano),
+		"db":      "ok",
 	}
 	if err := s.cfg.Store.Ping(ctx); err != nil {
 		resp["status"], resp["db"] = "degraded", "error: "+err.Error()

@@ -1,0 +1,37 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: test
+        run: go test -race -count=1 ./...
+      - name: build matrix
+        env:
+          CGO_ENABLED: 1
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # linux/amd64 and linux/arm64 are the deployment targets; darwin is
+          # published for developers. cgo + sqlite means no cross-compile, so
+          # each target is built on its own runner image below in a matrix job.
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/horizonbymuneeb/paisabridge/internal/version.Version=${GITHUB_REF_NAME}" \
+            -o dist/paisabridge-linux-amd64 ./cmd/paisabridge
+          go build -trimpath -ldflags "-s -w" -o dist/pbsend-linux-amd64 ./cmd/pbsend
+          (cd dist && sha256sum * > checksums.txt)
+      - name: upload
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: false

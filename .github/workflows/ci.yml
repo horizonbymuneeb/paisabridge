@@ -25,12 +25,15 @@ jobs:
       - name: build
         run: CGO_ENABLED=1 go build -o /dev/null ./cmd/paisabridge ./cmd/pbsend
 
+  # Standard-library CVEs are fixed by the toolchain, not by this repo, so the
+  # vulnerability gate runs on the newest stable Go. The test job above still
+  # proves the declared minimum (1.22) builds and passes.
   vuln:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: 'stable'
       - run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - run: govulncheck ./...

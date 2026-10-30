@@ -54,15 +54,33 @@ The response carries both `catalog_price_minor` and the unique
 
 | Doc | Contents |
 |-----|----------|
+| [`docs/QUICKSTART.md`](docs/QUICKSTART.md) | clone -> fulfilled order in 15 minutes |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | components, data flow, state machine |
 | [`docs/API.md`](docs/API.md) | every endpoint, request/response, errors |
 | [`docs/ADAPTERS.md`](docs/ADAPTERS.md) | adding a rail, signature schemes |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | deploy, Telegram bot, backups, runbook |
 
+## Features
+
+- **Amount-unique matching** - every open order gets a distinct payable amount,
+  so a payment needs no reference number typed by the buyer.
+- **Signed everything** - provider webhooks where the provider signs, an HMAC
+  envelope everywhere else, and duplicate deliveries are refused by a durable
+  replay guard.
+- **Never auto-delivers from an unsigned source.** E-mail/SMS alerts may open a
+  review, not a shipment.
+- **Wallet ledger** - append-only, idempotency-keyed, prepay discount in basis
+  points.
+- **Telegram bot** - status push, `/order`, `/wallet`; long polling, no public
+  URL required.
+- **Outbound webhooks** - every transition pushed to your storefront, signed,
+  with a stable delivery id and bounded retries.
+- **Zero external services** - one binary, one SQLite file.
+
 ## Status
 
-Work in progress — see `git log`. Every package ships with tests; `go test -race ./...`
-is the gate.
+Stable enough to self-host: 18 packages, 268 tests, `go test -race ./...` green,
+CI runs gofmt + vet + race tests + govulncheck on every push.
 
 ## License
 

@@ -34,6 +34,7 @@ import (
 	"github.com/horizonbymuneeb/paisabridge/internal/bot"
 	"github.com/horizonbymuneeb/paisabridge/internal/config"
 	"github.com/horizonbymuneeb/paisabridge/internal/match"
+	"github.com/horizonbymuneeb/paisabridge/internal/outbound"
 	"github.com/horizonbymuneeb/paisabridge/internal/store"
 	"github.com/horizonbymuneeb/paisabridge/internal/types"
 	"github.com/horizonbymuneeb/paisabridge/internal/wallet"
@@ -85,6 +86,28 @@ func run() error {
 	}
 
 	// --- http ----------------------------------------------------------
+	// --- outbound notifications ----------------------------------------
+	// The merchant side of the contract: every customer-visible transition is
+	// pushed to the integrator, signed, with a stable delivery id.
+	var notify func(context.Context, string, *types.Order)
+	if cfg.OutboundURL != "" {
+		sender, err := outbound.New(outbound.Config{
+			URL:    cfg.OutboundURL,
+			Secret: cfg.OutboundSecret,
+			Logf:   func(f string, a ...any) { logger.Info(fmt.Sprintf(f, a...)) },
+		})
+		if err != nil {
+			return fmt.Errorf("outbound: %w", err)
+		}
+		notify = func(ctx context.Context, event string, o *types.Order) {
+			deliveryID := event + ":" + o.ID + ":" + string(o.Status)
+			if err := sender.Notify(ctx, event, deliveryID, o); err != nil {
+				logger.Error("outbound delivery failed", "event", event, "order", o.ID, "err", err)
+			}
+		}
+		logger.Info("outbound notifications enabled", "url", cfg.OutboundURL)
+	}
+
 	apiSrv, err := api.New(api.Config{
 		Store:          st,
 		Wallet:         w,
@@ -94,6 +117,7 @@ func run() error {
 		OrderTTL:       cfg.OrderTTL,
 		Logger:         logger,
 		EnabledMethods: cfg.EnabledMethods,
+		Notify:         notify,
 	})
 	if err != nil {
 		return err

@@ -48,6 +48,12 @@ type Config struct {
 	// TelegramToken enables the customer-facing bot when non-empty.
 	TelegramToken string
 
+	// OutboundURL, when set, receives every order state change. The body is
+	// POSTed with an HMAC-SHA256 signature in X-PB-Signature.
+	OutboundURL string
+	// OutboundSecret signs outbound deliveries.
+	OutboundSecret string
+
 	// TelegramAPIBase overrides the Bot API origin. Empty means the public
 	// api.telegram.org; a local relay or a test double sets it.
 	TelegramAPIBase string
@@ -91,6 +97,8 @@ func Load() (*Config, error) {
 		PublicURL:       env("PB_PUBLIC_URL", "http://localhost:8080"),
 		TelegramToken:   env("PB_TELEGRAM_TOKEN", ""),
 		TelegramAPIBase: env("PB_TELEGRAM_API_BASE", ""),
+		OutboundURL:     env("PB_OUTBOUND_WEBHOOK_URL", ""),
+		OutboundSecret:  env("PB_OUTBOUND_SECRET", ""),
 
 		EasypaisaSecret:      os.Getenv("PB_EASYPAISA_SECRET"),
 		JazzCashSalt:         os.Getenv("PB_JAZZCASH_SALT"),

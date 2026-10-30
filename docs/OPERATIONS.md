@@ -32,6 +32,10 @@ secret and an admin token.
 | `PB_BINANCEPAY_SECRET` | — | Binance Pay + USDT |
 | `PB_PAYONEER_SECRET` | — | Payoneer |
 | `PB_USDT_RECEIVER_ADDRESS`, `PB_USDT_CONTRACT`, `PB_USDT_CHAIN` | — | on-chain watcher |
+| `PB_TELEGRAM_TOKEN` | — | enables the customer bot (long polling, no public URL needed) |
+| `PB_TELEGRAM_API_BASE` | `https://api.telegram.org` | override for a relay or a test double |
+| `PB_OUTBOUND_WEBHOOK_URL` | — | push every order transition to your storefront |
+| `PB_OUTBOUND_SECRET` | — | HMAC key for outbound deliveries (`X-PB-Signature`) |
 
 A rail with no secret is skipped at boot and its webhook route answers
 `no_adapter`. Booting with zero rails is an error unless `PB_DEV=true`.
@@ -42,8 +46,13 @@ The bot uses long polling, so the gateway needs no public URL and no webhook
 registration:
 
 ```
-PB_TELEGRAM_TOKEN=123456:AA...   /setcommands -> start,order,wallet
+export PB_TELEGRAM_TOKEN=123456:AA-your-botfather-token
+export PB_PUBLIC_URL=https://shop.example.com
+./paisabridge        # logs "telegram bot polling"
 ```
+
+Then in BotFather: `/setcommands` -> `start, order, wallet`. No webhook
+registration and no public URL for the bot are needed: it uses long polling.
 
 Customers whose order has `customer_phone = "tg:<chat_id>"` get a status push on
 every transition, and the OTP is attached once the order is fulfilled.

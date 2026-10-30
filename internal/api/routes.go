@@ -122,6 +122,12 @@ type Config struct {
 	EnabledMethods []types.Method
 	// Now is optional clock injection for tests.
 	Now func() time.Time
+
+	// Notify, when set, is called after an order reaches a customer-visible
+	// state (fulfilled, review, expired, cancelled). It runs in a goroutine so
+	// a slow integrator endpoint can never delay a webhook acknowledgement.
+	// Errors are the implementation's concern; the API only logs them.
+	Notify func(ctx context.Context, event string, order *types.Order)
 }
 
 // Server holds the handlers. One Server == one *http.ServeMux.

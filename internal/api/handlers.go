@@ -227,6 +227,20 @@ func (s *Server) refunded(ctx context.Context, orderID string) (bool, error) {
 // webhooks
 // ---------------------------------------------------------------------------
 
+// notify fires the optional outbound notification for a state change. It never
+// blocks the HTTP handler: a webhook sender that is down must not turn a
+// successful payment into a 5xx that the provider then retries.
+func (s *Server) notify(event string, o *types.Order) {
+	if s.cfg.Notify == nil || o == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		s.cfg.Notify(ctx, event, o)
+	}()
+}
+
 type webhookResponse struct {
 	Matched  bool   `json:"matched"`
 	OrderID  string `json:"order_id,omitempty"`
@@ -290,6 +304,9 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		if _, err := s.cfg.Store.TransitionOrder(ctx, out.OrderID, types.StatusVerified, types.StatusFulfilled, "fulfiller", "delivered after verified payment"); err != nil &&
 			!errors.Is(err, store.ErrNoTransition) {
 			s.log.Error("fulfil", "order", out.OrderID, "err", err)
+		}
+		if full, err := s.cfg.Store.Order(ctx, out.OrderID); err == nil {
+			s.notify(outboundEvent(types.StatusFulfilled), full)
 		}
 	}
 	s.log.Info("webhook", "method", name, "txn", notice.TxnRef, "amount", notice.Amount,
@@ -424,6 +441,8 @@ func (s *Server) handleAdminApprove(w http.ResponseWriter, r *http.Request) {
 	final, err := s.cfg.Store.Order(ctx, ord.ID)
 	if err != nil {
 		final = ord
+	} else {
+		s.notify(outboundEvent(types.StatusFulfilled), final)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"order": final, "outcome": out})
 }
@@ -475,4 +494,22 @@ func atoiDefault(s string, def int) int {
 var _ = []string{
 	match.ReasonMatched, match.ReasonDuplicateTxn, match.ReasonAmbiguous,
 	match.ReasonExpired, match.ReasonNoOrder,
+}
+
+// outboundEvent maps an order status to the event name shipped to integrators.
+func outboundEvent(st types.OrderStatus) string {
+	switch st {
+	case types.StatusFulfilled:
+		return "order.fulfilled"
+	case types.StatusReview:
+		return "order.review"
+	case types.StatusExpired:
+		return "order.expired"
+	case types.StatusCancelled:
+		return "order.cancelled"
+	case types.StatusVerified:
+		return "order.verified"
+	default:
+		return "order." + string(st)
+	}
 }

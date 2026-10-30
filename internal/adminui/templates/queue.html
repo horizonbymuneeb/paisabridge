@@ -1,0 +1,48 @@
+{{define "content.queue"}}{{$d := .Data}}
+<div class="phead">
+  <div>
+    <h1>Review queue</h1>
+    <p class="lede">Payments the matcher would not settle on its own, usually because the amount was ambiguous, arrived late, or came in unsigned. Approving marks the order paid and queues delivery. Rejecting cancels it.</p>
+  </div>
+  <div class="meta">{{$d.Count}} waiting · page {{$d.PageNo}}</div>
+</div>
+
+{{if $d.Banner}}
+<div class="banner banner-{{$d.BannerKind}}" role="status">{{$d.Banner}}</div>
+{{end}}
+
+<div class="section">
+  <h2>
+    <span>Open decisions</span>
+    <span class="hint">
+      {{if $d.Total}}value {{template "totals" $d.Total}}{{end}}
+    </span>
+  </h2>
+  {{if $d.Rows}}
+  <div class="panel">
+    <div class="tw">
+      <table class="rows">
+        {{template "tableHead" true}}
+        <tbody>
+          {{range $d.Rows}}{{template "orderRow" .}}{{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {{if $d.Older}}
+  <p class="sm faint">{{$d.Older}} more waiting. <a href="{{$d.NextPage}}">Next page</a></p>
+  {{end}}
+  <p class="sm faint">The optional txn ref binds the inbound transaction to the order, so a later webhook for the same payment is treated as a duplicate instead of a second credit.</p>
+  {{else}}
+  <div class="panel">
+    <div class="empty">
+      <strong>Queue is clear</strong>
+      No order is in review. New payments that cannot be matched automatically appear here.
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+{{define "totals"}}{{range $i, $t := .}}{{if $i}} / {{end}}<span class="mono">{{amount $t.Minor $t.Currency}} {{$t.Currency}}</span>{{end}}
+{{end}}

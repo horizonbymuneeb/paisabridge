@@ -53,6 +53,26 @@ type Config struct {
 	OutboundURL string
 	// OutboundSecret signs outbound deliveries.
 	OutboundSecret string
+	// TrustProxy makes the API read the client IP from X-Forwarded-For. Only
+	// enable behind a proxy you control: otherwise a caller can spoof its IP
+	// and walk around the rate limiter.
+	TrustProxy bool
+	// Metrics enables GET /metrics.
+	Metrics bool
+	// MetricsToken, when set, additionally requires X-Metrics-Token so the
+	// numbers are not world-readable on a public host.
+	MetricsToken string
+	// AdminInsecureCookie drops the Secure attribute on the console session
+	// cookie. It defaults to true only when PB_PUBLIC_URL is plain http, which
+	// is a local/dev setup: a Secure cookie is silently dropped over http, and
+	// the console then shows a login loop. Behind TLS it stays false.
+	AdminInsecureCookie bool
+
+	// AdminAddr, when set, serves the operator console on its OWN listener
+	// (for example 127.0.0.1:8081). A separate port is deliberate: the console
+	// can be firewalled or VPN-only, and it never shares a listener with the
+	// public payment API.
+	AdminAddr string
 
 	// TelegramAPIBase overrides the Bot API origin. Empty means the public
 	// api.telegram.org; a local relay or a test double sets it.
@@ -85,20 +105,25 @@ type Config struct {
 // is a deployment bug worth failing loudly on.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Addr:            env("PB_ADDR", ":8080"),
-		DBPath:          env("PB_DB", "paisabridge.db"),
-		AdminToken:      os.Getenv("PB_ADMIN_TOKEN"),
-		DevMode:         envBool("PB_DEV", false),
-		OrderTTL:        envDur("PB_ORDER_TTL", 30*time.Minute),
-		SweepInterval:   envDur("PB_SWEEP_INTERVAL", time.Minute),
-		DiscountBPS:     envInt("PB_DISCOUNT_BPS", 500),
-		WalletCurrency:  env("PB_WALLET_CURRENCY", "PKR"),
-		WebhookSecrets:  map[string]string{},
-		PublicURL:       env("PB_PUBLIC_URL", "http://localhost:8080"),
-		TelegramToken:   env("PB_TELEGRAM_TOKEN", ""),
-		TelegramAPIBase: env("PB_TELEGRAM_API_BASE", ""),
-		OutboundURL:     env("PB_OUTBOUND_WEBHOOK_URL", ""),
-		OutboundSecret:  env("PB_OUTBOUND_SECRET", ""),
+		Addr:                env("PB_ADDR", ":8080"),
+		DBPath:              env("PB_DB", "paisabridge.db"),
+		AdminToken:          os.Getenv("PB_ADMIN_TOKEN"),
+		DevMode:             envBool("PB_DEV", false),
+		OrderTTL:            envDur("PB_ORDER_TTL", 30*time.Minute),
+		SweepInterval:       envDur("PB_SWEEP_INTERVAL", time.Minute),
+		DiscountBPS:         envInt("PB_DISCOUNT_BPS", 500),
+		WalletCurrency:      env("PB_WALLET_CURRENCY", "PKR"),
+		WebhookSecrets:      map[string]string{},
+		PublicURL:           env("PB_PUBLIC_URL", "http://localhost:8080"),
+		TelegramToken:       env("PB_TELEGRAM_TOKEN", ""),
+		TelegramAPIBase:     env("PB_TELEGRAM_API_BASE", ""),
+		OutboundURL:         env("PB_OUTBOUND_WEBHOOK_URL", ""),
+		OutboundSecret:      env("PB_OUTBOUND_SECRET", ""),
+		TrustProxy:          envBool("PB_TRUST_PROXY", false),
+		Metrics:             envBool("PB_METRICS", false),
+		MetricsToken:        os.Getenv("PB_METRICS_TOKEN"),
+		AdminAddr:           env("PB_ADMIN_ADDR", ""),
+		AdminInsecureCookie: adminInsecureCookie(),
 
 		EasypaisaSecret:      os.Getenv("PB_EASYPAISA_SECRET"),
 		JazzCashSalt:         os.Getenv("PB_JAZZCASH_SALT"),
@@ -210,4 +235,14 @@ func envDur(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+// adminInsecureCookie derives the console cookie policy from the public URL
+// scheme unless the operator overrides it explicitly.
+func adminInsecureCookie() bool {
+	if v, ok := os.LookupEnv("PB_ADMIN_INSECURE_COOKIE"); ok {
+		return strings.ToLower(strings.TrimSpace(v)) == "1" ||
+			strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(os.Getenv("PB_PUBLIC_URL"))), "http://")
 }

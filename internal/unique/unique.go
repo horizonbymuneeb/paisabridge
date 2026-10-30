@@ -61,6 +61,8 @@ func Pick(price int64, currency string, taken map[int64]bool) (int64, bool) {
 	var b [8]byte
 	binary.LittleEndian.PutUint64(b[:], uint64(price))
 	h.Write(b[:])
+	// base is in [1, max] so the first candidate is never the bare price; the
+	// loop below still re-checks for zero because the modulo can wrap.
 	base := int64(h.Sum32())%(max) + 1
 
 	// Prefer adding small offsets, then subtracting.
@@ -69,10 +71,15 @@ func Pick(price int64, currency string, taken map[int64]bool) (int64, bool) {
 	for i := int64(0); i <= max; i++ {
 		for _, sign := range []int64{1, -1} {
 			off := ((base + i) % (max + 1)) * step
-			cand := price + sign*off
-			if off == 0 && sign < 0 {
+			if off == 0 {
+				// Zero offset is the bare list price, which carries no
+				// fingerprint and collides with every other order at the same
+				// price. Skip it for BOTH signs - skipping only the negative
+				// branch reintroduces exactly that collision whenever the band
+				// wraps around to zero.
 				continue
 			}
+			cand := price + sign*off
 			if cand <= 0 || taken[cand] {
 				continue
 			}

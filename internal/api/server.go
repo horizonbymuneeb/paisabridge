@@ -17,6 +17,7 @@ func (s *Server) routes() {
 
 	// --- public ---------------------------------------------------------
 	m.HandleFunc("GET /api/healthz", s.handleHealthz)
+	m.HandleFunc("GET /api/readyz", s.handleReadyz)
 
 	m.HandleFunc("POST /api/orders", s.handleCreateOrder)
 	m.HandleFunc("GET /api/orders/{id}", s.handleGetOrder)

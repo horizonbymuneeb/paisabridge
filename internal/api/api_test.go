@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -93,7 +94,10 @@ type harness struct {
 	now     func() time.Time
 }
 
-func newHarness(t *testing.T) *harness {
+// newHarness starts a full HTTP test server over a fresh SQLite file.
+// Optional tweaks run after the defaults, so a test can change one Config
+// field (a rate limit, the clock) without copying the whole wiring.
+func newHarness(t *testing.T, tweaks ...func(*api.Config)) *harness {
 	t.Helper()
 	s, err := store.Open(filepath.Join(t.TempDir(), "api.db"))
 	if err != nil {
@@ -106,12 +110,16 @@ func newHarness(t *testing.T) *harness {
 	ep := &fakeAdapter{method: types.MethodEasypaisa, secret: testSecret}
 	jp := &fakeAdapter{method: types.MethodJazzCash, secret: "jazz-secret"}
 
-	apiSrv, err := api.New(api.Config{
+	cfg := api.Config{
 		Store: s, Wallet: w, Matcher: m,
 		Adapters:   registry{types.MethodEasypaisa: ep, types.MethodJazzCash: jp},
 		AdminToken: adminToken,
 		OrderTTL:   15 * time.Minute,
-	})
+	}
+	for _, fn := range tweaks {
+		fn(&cfg)
+	}
+	apiSrv, err := api.New(cfg)
 	if err != nil {
 		t.Fatalf("api.New: %v", err)
 	}
@@ -781,5 +789,42 @@ func TestAmbiguousAmountRequiresAdmin(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("stray payment not in unmatched notices: %s", body)
+	}
+}
+
+// TestReadyzSeparatesReadinessFromLiveness: readiness must fail when the store
+// is unreachable while liveness keeps reporting process health, so an
+// orchestrator restarts on one signal and de-rotates on the other.
+func TestReadyzSeparatesReadinessFromLiveness(t *testing.T) {
+	h := newHarness(t)
+
+	code, body := h.do("GET", "/api/readyz", nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("readyz code = %d, want 200", code)
+	}
+	var ready struct {
+		Ready  bool              `json:"ready"`
+		Checks map[string]string `json:"checks"`
+	}
+	decodeInto(t, body, &ready)
+	if !ready.Ready || ready.Checks["db"] != "ok" {
+		t.Fatalf("readyz body = %+v, want ready with db ok", ready)
+	}
+
+	// Take the database away: readiness must report 503, liveness must stay 200.
+	// That difference is the whole point of having two probes.
+	if err := h.store.DB().Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+	code, body = h.do("GET", "/api/readyz", nil, nil)
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz with closed db = %d %s, want 503", code, body)
+	}
+	code, body = h.do("GET", "/api/healthz", nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("healthz with closed db = %d %s, want 200 (liveness must not fail)", code, body)
+	}
+	if !strings.Contains(string(body), "degraded") {
+		t.Fatalf("healthz should report the degraded db: %s", body)
 	}
 }

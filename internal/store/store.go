@@ -484,6 +484,7 @@ func (s *Store) CountOpenOrdersByAmount(ctx context.Context, method types.Method
 //	   │              │  └──▶ review ─┘ (admin approve re-enters verified)
 //	   │              ├──▶ expired
 //	   └──────────────┴──▶ cancelled
+//	verified ──▶ fulfilled | review | expired
 //
 // Terminal states (from types.IsTerminal): fulfilled, expired, cancelled.
 var transitions = map[types.OrderStatus]map[types.OrderStatus]bool{
@@ -506,6 +507,14 @@ var transitions = map[types.OrderStatus]map[types.OrderStatus]bool{
 	types.StatusVerified: {
 		types.StatusFulfilled: true,
 		types.StatusReview:    true, // delivery failed and needs a human
+		// A verified-but-unfulfilled order can time out: the money was taken,
+		// the goods were not delivered, so the sweep must be able to expire it
+		// and the wallet refund follows.
+		types.StatusExpired: true,
+		// Cancellation is deliberately NOT an edge here: once a payment is
+		// verified the only ways out are fulfilment, a review, or the expiry
+		// sweep (which refunds). A paid order is not "cancelled" - it is
+		// refunded, and that is a money movement with its own dedupe key.
 	},
 	// terminal states have no outgoing edges
 }
@@ -618,10 +627,16 @@ func (s *Store) SetSMSOTP(ctx context.Context, id, otp string) error {
 	return nil
 }
 
-// ExpireOpenOrders moves every created/pending_payment order whose expiry has
-// passed to expired and returns them. The caller (wallet) then refunds each
-// one. Idempotent: the second run finds nothing. Runs inside a single
-// transaction so concurrent workers cannot both claim the same expiry.
+// ExpireOpenOrders moves every created/pending_payment/verified order whose
+// expiry has passed to expired and returns them. The caller (wallet) then
+// refunds each one. Idempotent: the second run finds nothing. Runs inside a
+// single transaction so concurrent workers cannot both claim the same expiry.
+//
+// `verified` is included on purpose. A wallet-paid order reaches verified at
+// the moment the debit happens, before any delivery; if the payment window then
+// elapsed without fulfilment the money must come back, and the only thing that
+// can observe that is this sweep. Leaving verified out strands the customer's
+// balance forever - they paid and received nothing.
 func (s *Store) ExpireOpenOrders(ctx context.Context) ([]*types.Order, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -632,9 +647,10 @@ func (s *Store) ExpireOpenOrders(ctx context.Context) ([]*types.Order, error) {
 	now := s.Now()
 	const stale = 500
 	rows, err := tx.QueryContext(ctx, `SELECT `+orderColumns+` FROM orders
-		WHERE status IN (?,?) AND expires_at <= ?
+		WHERE status IN (?,?,?) AND expires_at <= ?
 		LIMIT ?`,
-		string(types.StatusCreated), string(types.StatusPendingPayment), now.Format(TimeLayout), stale)
+		string(types.StatusCreated), string(types.StatusPendingPayment),
+		string(types.StatusVerified), now.Format(TimeLayout), stale)
 	if err != nil {
 		return nil, fmt.Errorf("store: scan expiring orders: %w", err)
 	}
@@ -655,9 +671,10 @@ func (s *Store) ExpireOpenOrders(ctx context.Context) ([]*types.Order, error) {
 	out := due[:0]
 	for _, o := range due {
 		res, err := tx.ExecContext(ctx, `UPDATE orders SET status = ?, updated_at = ?
-			WHERE id = ? AND status IN (?,?)`,
+			WHERE id = ? AND status IN (?,?,?)`,
 			string(types.StatusExpired), now.Format(TimeLayout), o.ID,
-			string(types.StatusCreated), string(types.StatusPendingPayment))
+			string(types.StatusCreated), string(types.StatusPendingPayment),
+			string(types.StatusVerified))
 		if err != nil {
 			return nil, fmt.Errorf("store: expire order: %w", err)
 		}

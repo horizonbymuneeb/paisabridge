@@ -1,0 +1,58 @@
+{{define "content.notices"}}{{$d := .Data}}
+<div class="phead">
+  <div>
+    <h1>Notices</h1>
+    <p class="lede">Every inbound payment fact, recorded once per rail and transaction reference. Unmatched rows have no order whose amount they match, so a human has to reconcile them.</p>
+  </div>
+  <div class="meta">{{$d.Count}} recorded · {{$d.Unmatched}} unmatched</div>
+</div>
+
+<form class="filters" method="get" action="">
+  <label class="field">
+    <span>Status</span>
+    <select name="status">
+      {{range $d.Statuses}}
+      <option value="{{.}}"{{if eq $d.Status .}} selected{{end}}>{{.}}</option>
+      {{end}}
+    </select>
+  </label>
+  <div class="btn-row">
+    <button class="btn btn-primary" type="submit">Apply</button>
+    <a class="btn btn-quiet" href="/notices?status=all">Show all</a>
+  </div>
+</form>
+
+<div class="panel">
+  {{if $d.Rows}}
+  <div class="tw">
+    <table class="rows">
+      <thead>
+        <tr>
+          <th scope="col">Txn ref</th>
+          <th scope="col">Status</th>
+          <th scope="col" class="num">Amount</th>
+          <th scope="col" class="c-method">Method</th>
+          <th scope="col" class="c-who hide-sm">Sender</th>
+          <th scope="col" class="c-out hide-md">Outcome</th>
+          <th scope="col" class="c-age hide-xs">Received</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range $r := $d.Rows}}{{template "orderRow" $r}}{{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty">
+    <strong>No payments with that status</strong>
+    {{if $d.Count}}Every recorded payment has been matched to an order.{{else}}No inbound payment has been recorded yet.{{end}}
+    <a href="/notices?status=all">Show all payments</a>.
+  </div>
+  {{end}}
+</div>
+
+<p class="sm faint">
+  Unmatched payments are the ones worth acting on: compare the amount and sender against a customer message, then approve the matching order from the review queue with the transaction reference attached.
+  {{if eq (len $d.Rows) 50}}The table shows the newest 50; narrow the status to see further back.{{end}}
+</p>
+{{end}}

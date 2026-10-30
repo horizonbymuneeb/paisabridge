@@ -1,0 +1,109 @@
+{{/* Shared fragments. Everything here is presentation only: the handlers
+     decide the numbers, these templates decide where they sit. */}}
+
+{{/* Money strip: three columns, mono tabular figures, hairlines between. */}}
+{{define "money"}}
+<div class="money">
+  <div>
+    <span class="k">Money in today</span>
+    {{if .In.Totals}}
+      {{range .In.Totals}}
+      <span class="v pos">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
+      {{end}}
+    {{else}}
+      <span class="v faint">0.00</span>
+    {{end}}
+    <span class="d">
+      {{if .In.Totals}}{{if eq .In.From "ledger"}}credits net of refunds{{else}}verified and fulfilled today{{end}} · UTC day{{else}}nothing credited yet today{{end}}
+    </span>
+  </div>
+  <div>
+    <span class="k">Wallet-paid today</span>
+    {{if .In.Paid}}
+      {{range .In.Paid}}
+      <span class="v">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
+      {{end}}
+    {{else}}
+      <span class="v faint">0.00</span>
+    {{end}}
+    <span class="d">internal transfer, not new money at the door</span>
+  </div>
+  <div>
+    <span class="k">Open order value</span>
+    {{if .OpenValue}}
+      {{range .OpenValue}}
+      <span class="v">{{amount .Minor .Currency}}<span class="u"> {{.Currency}}</span></span>
+      {{end}}
+    {{else}}
+      <span class="v faint">0.00</span>
+    {{end}}
+    <span class="d">{{.Open}} open, not yet settled</span>
+  </div>
+</div>
+{{end}}
+
+{{/* One heading row for a table, so column order stays identical across the
+     queue, the order list and the order detail page. */}}
+{{define "tableHead"}}
+<thead>
+  <tr>
+    <th scope="col">Order</th>
+    <th scope="col">Status</th>
+    <th scope="col" class="num">Amount</th>
+    <th scope="col" class="c-method">Method</th>
+    <th scope="col" class="c-txn hide-sm">Txn ref</th>
+    <th scope="col" class="c-who hide-sm">Customer</th>
+    <th scope="col" class="c-age hide-xs">Window</th>
+    {{if .}}<th scope="col" class="num">Decision</th>{{end}}
+  </tr>
+</thead>
+{{end}}
+
+{{/* One order row. The cell order matches tableHead exactly; columns that are
+     dropped on small screens are dropped here, never squeezed. */}}
+{{define "orderRow"}}{{$r := .}}
+<tr id="{{$r.ID}}">
+  {{range $i, $c := $r.Cells}}
+  <td data-label="{{$c.Label}}" class="{{$c.Class}}{{if $c.Numeric}} num{{end}}">
+    {{if $c.IsStat}}
+      <span class="st st-{{$c.Tone}}">{{$c.Text}}</span>
+      {{if $c.Sub}}<span class="cell sm faint">{{$c.Sub}}</span>{{end}}
+    {{else if $c.Href}}
+      <a class="mono" href="{{$c.Href}}" title="{{$r.Title}}">{{$c.Text}}</a>
+      {{if $c.Sub}}<span class="cell sm faint mono">{{$c.Sub}}</span>{{end}}
+    {{else if $c.Primary}}
+      <a class="mono primary" href="{{$r.Href}}" title="{{$r.Title}}">{{$c.Text}}</a>
+      {{if $c.Sub}}<span class="cell sm faint mono">{{$c.Sub}}</span>{{end}}
+    {{else if $c.Numeric}}
+      <span class="mono">{{$c.Text}}</span>
+      {{if $c.Sub}}<span class="cell sm faint mono">{{$c.Sub}}</span>{{end}}
+    {{else}}
+      <span{{if eq $c.Tone "mute"}} class="dim"{{end}}>{{$c.Text}}</span>
+      {{if $c.Sub}}<span class="cell sm faint{{if $c.Mono}} mono{{end}}">{{$c.Sub}}</span>{{end}}
+    {{end}}
+  </td>
+  {{end}}
+  {{if $r.HasActions}}
+  <td data-label="Decision" class="c-act">
+    <form method="post" action="/queue">
+      <input type="hidden" name="csrf" value="{{(index $r.Actions 0).CSRF}}">
+      <input type="hidden" name="order_id" value="{{$r.ID}}">
+      <input type="text" name="txn_ref" value="" placeholder="txn ref"
+             aria-label="Transaction reference" autocomplete="off" spellcheck="false">
+      <button class="btn btn-primary" type="submit" name="action" value="approve"
+              data-confirm="{{(index $r.Actions 0).Confirm}}">Approve</button>
+      <button class="btn btn-quiet" type="submit" name="action" value="reject"
+              data-confirm="{{(index $r.Actions 1).Confirm}}">Reject</button>
+    </form>
+  </td>
+  {{end}}
+</tr>
+{{end}}
+
+{{/* Empty state with a next step, so a blank screen is still informative. */}}
+{{define "empty"}}
+<div class="empty">
+  <strong>{{.Title}}</strong>
+  {{.Body}}
+</div>
+{{end}}

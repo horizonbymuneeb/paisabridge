@@ -141,7 +141,8 @@ e-mail, so it opens a review, never a shipment.
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | components, data flow, state machine |
 | [`docs/API.md`](docs/API.md) | every endpoint, request/response, errors |
 | [`docs/ADAPTERS.md`](docs/ADAPTERS.md) | adding a rail, signature schemes |
-| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | deploy, Telegram bot, backups, runbook |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | deploy, env table, health probes, backups, runbook |
+| [`docs/PRODUCTION.md`](docs/PRODUCTION.md) | systemd, hardening checklist, monitoring, incidents |
 
 ## Features
 
@@ -158,12 +159,20 @@ e-mail, so it opens a review, never a shipment.
   URL required.
 - **Outbound webhooks** - every transition pushed to your storefront, signed,
   with a stable delivery id and bounded retries.
+- **Operator console** - server-rendered review queue on its own address; approve
+  a parked payment in one click, every decision lands in the order journal.
+- **Rate limiting and idempotency** - per-IP buckets per endpoint class, and
+  retry-safe order creation, so a double-click cannot create two orders.
+- **Observability** - Prometheus `/metrics`, liveness and readiness split,
+  dead-letter table for outbound deliveries, one structured log line per request.
 - **Zero external services** - one binary, one SQLite file.
 
 ## Status
 
-Stable enough to self-host: 18 packages, 275 tests, `go test -race ./...` green.
+Stable enough to self-host: 21 packages, 433 tests, `go test -race ./...` green.
 CI runs gofmt, vet, race tests, a build and `govulncheck` on every push.
+Statement coverage of the money-handling packages: `unique` 97%, `match` 94%,
+`store` 83%, `wallet` 78%.
 
 ## License
 

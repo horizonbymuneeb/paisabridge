@@ -48,6 +48,13 @@ Create an order and reserve a unique amount.
 | `customer_email` | no | for receipts |
 | `customer_phone` | no | `tg:<chat_id>` binds the order to a Telegram chat |
 | `ttl_seconds` | no | default 900, max 3600 |
+| `idempotency_key` | no | retry-safe order creation; see below |
+
+**Retries.** Send `idempotency_key` when your storefront retries a checkout. The
+same key with the same body returns the SAME order (`200` instead of `201`);
+the same key with different content is `409 idempotency_conflict`, because
+silently creating a second order is worse than a clear error. Use one key per
+customer intent (a cart submit), never per HTTP attempt.
 
 Response `201`:
 
@@ -88,6 +95,39 @@ Releases the reservation. If a wallet top-up had been applied it is refunded.
 Returns the cancelled order. Idempotent; cancelling a terminal order is `409`.
 
 ---
+
+## Rate limits
+
+Every endpoint is limited per client IP. Refusals are `429` with a
+`Retry-After` header and the usual error envelope with
+`code: "rate_limited"`; the detail names the class and the wait.
+
+| Class | Endpoints | Per minute | Burst |
+|-------|-----------|:----------:|:-----:|
+| `orders_write` | `POST /api/orders` | 10 | 10 |
+| `orders_read` | `GET /api/orders/{id}` | 120 | 40 |
+| `orders_action` | `claim`, `cancel` | 20 | 8 |
+| `webhooks` | `POST /api/webhooks/{method}` | 300 | 60 |
+| `wallet` | `GET /api/wallet`, `POST /api/wallet/topup` | 30 | 10 |
+| `admin` | `POST /api/admin/*` | 20 | 5 |
+
+The webhook class is deliberately generous: providers retry, and throttling a
+real payment is worse than absorbing a burst. If you run behind a proxy, set
+`PB_TRUST_PROXY=1` so the limiter sees the real client address - otherwise every
+request looks like it comes from the proxy and one noisy client throttles
+everyone.
+
+## GET /api/readyz
+
+Readiness, as opposed to liveness on `/api/healthz`:
+
+```json
+{"ready": true, "checks": {"db": "ok"}, "version": {"version": "v0.2.0", "go": "go1.22.8", "os": "linux", "arch": "arm64"}}
+```
+
+`503` with `"ready": false` when the database is unreachable. Point your load
+balancer at this and your process supervisor at `/api/healthz`: "take me out of
+rotation" and "restart me" are different decisions.
 
 ## POST /api/webhooks/{method}
 
@@ -150,6 +190,44 @@ rate-limited.
 ```json
 {"ok": true, "version": "0.1.0", "uptime_s": 120}
 ```
+
+## GET /metrics
+
+Prometheus text format, disabled unless `PB_METRICS=1`. Add
+`PB_METRICS_TOKEN` to require `X-Metrics-Token` on every scrape.
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `paisabridge_orders_created_total` | counter | `method`, `status` |
+| `paisabridge_payments_matched_total` | counter | `outcome`, `reason` |
+| `paisabridge_webhook_signature_failures_total` | counter | `method` |
+| `paisabridge_ratelimited_requests_total` | counter | `class` |
+| `paisabridge_http_requests_total` | counter | `class`, `status` |
+| `paisabridge_http_request_duration_seconds` | histogram | `class` |
+| `paisabridge_outbound_deliveries_total` | counter | `event`, `result` |
+| `paisabridge_outbound_deadletter_open` | gauge | - |
+| `paisabridge_build_info` | gauge | `version` |
+
+Label values come from closed sets (route classes, rails, status classes), so a
+scanner probing random paths cannot grow the registry.
+
+Two alerts cover the common incidents: a sustained rise in
+`webhook_signature_failures_total` (forgery attempts or a rotated secret on one
+side), and `outbound_deadletter_open > 0` for fifteen minutes (your storefront
+webhook is down and deliveries are being parked).
+
+## Operator console
+
+Set `PB_ADMIN_ADDR` (for example `127.0.0.1:8081`) to serve a server-rendered
+console on its own listener. It is deliberately separate from the payment port:
+bind it to loopback or a VPN address and the review queue is never reachable
+from the internet.
+
+Screens: dashboard (money in/out, open orders), review queue with one-click
+approve/reject, orders list with filter and search (by ref or bank-statement
+transaction reference), order detail with the full journal, and unmatched
+payment notices. Sign-in is the admin token; the session is an `HttpOnly`
+`SameSite=Strict` cookie.
 
 ## Integrator webhook (outbound)
 

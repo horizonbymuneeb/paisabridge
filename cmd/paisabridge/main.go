@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -30,22 +31,50 @@ import (
 
 	"github.com/horizonbymuneeb/paisabridge/internal/adapter"
 	"github.com/horizonbymuneeb/paisabridge/internal/adapters/registry"
+	"github.com/horizonbymuneeb/paisabridge/internal/adminui"
 	"github.com/horizonbymuneeb/paisabridge/internal/api"
 	"github.com/horizonbymuneeb/paisabridge/internal/bot"
 	"github.com/horizonbymuneeb/paisabridge/internal/config"
 	"github.com/horizonbymuneeb/paisabridge/internal/match"
+	"github.com/horizonbymuneeb/paisabridge/internal/metrics"
 	"github.com/horizonbymuneeb/paisabridge/internal/outbound"
 	"github.com/horizonbymuneeb/paisabridge/internal/store"
 	"github.com/horizonbymuneeb/paisabridge/internal/types"
+	"github.com/horizonbymuneeb/paisabridge/internal/version"
 	"github.com/horizonbymuneeb/paisabridge/internal/wallet"
 )
 
 func main() {
+	// -version / --version prints build identity and exits before config
+	// validation, so "what is deployed?" never needs a running server.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-version", "--version", "version":
+			v := version.Get()
+			fmt.Printf("paisabridge %s (%s %s/%s)\n", v.Version, v.Go, v.OS, v.Arch)
+			return
+		case "-h", "--help", "help":
+			fmt.Fprint(os.Stderr, helpText)
+			return
+		}
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "paisabridge:", err)
 		os.Exit(1)
 	}
 }
+
+const helpText = `paisabridge - open-source payment bridge
+
+Usage:
+  paisabridge            run with the configuration in the environment
+  paisabridge -version   print build identity
+  paisabridge -help      this text
+  pbsend                 mint a signed notice for testing or a relay
+
+Configuration is environment-only; see docs/OPERATIONS.md for every variable.
+Required to start: PB_ADMIN_TOKEN and at least one rail secret (or PB_DEV=1).
+`
 
 func run() error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -108,6 +137,17 @@ func run() error {
 		logger.Info("outbound notifications enabled", "url", cfg.OutboundURL)
 	}
 
+	// --- metrics --------------------------------------------------------
+	// A nil registry keeps the API's metric calls harmless; when enabled the
+	// same registry backs the /metrics route, so the counters the API fills
+	// are exactly the ones scraped.
+	var metricsReg *metrics.Registry
+	if cfg.Metrics {
+		metricsReg = metrics.New()
+		metrics.Register(metricsReg)
+		metricsReg.SetEnabled(true)
+	}
+
 	apiSrv, err := api.New(api.Config{
 		Store:          st,
 		Wallet:         w,
@@ -118,14 +158,62 @@ func run() error {
 		Logger:         logger,
 		EnabledMethods: cfg.EnabledMethods,
 		Notify:         notify,
+		TrustProxy:     cfg.TrustProxy,
+		Metrics:        recorderFor(metricsReg),
 	})
 	if err != nil {
 		return err
 	}
 
+	// --- one mux --------------------------------------------------------
+	// The API owns /api/*, the operator console owns /admin/*, and /metrics is
+	// mounted separately so the two surfaces stay independently switchable.
+	root := http.NewServeMux()
+	root.Handle("/", apiSrv)
+
+	// The operator console gets its own listener rather than a path prefix on
+	// the public mux: its pages link to root-relative paths, and keeping it
+	// separate means it can be bound to loopback or a VPN address and never
+	// exposed on the payment port by accident.
+	var adminSrv *http.Server
+	if cfg.AdminAddr != "" {
+		if cfg.AdminToken == "" {
+			logger.Warn("admin console not started: PB_ADMIN_TOKEN is empty")
+		} else if ui, uiErr := adminui.New(adminui.Config{
+			Store:          st,
+			Wallet:         w,
+			AdminToken:     cfg.AdminToken,
+			InsecureCookie: cfg.AdminInsecureCookie,
+		}); uiErr != nil {
+			logger.Error("admin console disabled", "err", uiErr)
+		} else if ui == nil {
+			logger.Warn("admin console disabled")
+		} else {
+			adminSrv = &http.Server{
+				Addr:              cfg.AdminAddr,
+				Handler:           ui,
+				ReadHeaderTimeout: 10 * time.Second,
+				ReadTimeout:       30 * time.Second,
+				WriteTimeout:      30 * time.Second,
+				IdleTimeout:       90 * time.Second,
+			}
+			go func() {
+				logger.Info("admin console listening", "addr", cfg.AdminAddr)
+				if err := adminSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					logger.Error("admin console stopped", "err", err)
+				}
+			}()
+		}
+	}
+
+	if metricsReg != nil {
+		root.Handle("/metrics", metricsGuard(cfg.MetricsToken, metricsReg))
+		logger.Info("metrics enabled", "path", "/metrics", "token_required", cfg.MetricsToken != "")
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           logRequests(logger, apiSrv),
+		Handler:           logRequests(logger, recorderFor(metricsReg), root),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -190,6 +278,11 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	if adminSrv != nil {
+		if err := adminSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Error("admin shutdown", "err", err)
+		}
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("shutdown", "err", err)
 	}
@@ -294,16 +387,115 @@ func sweepLoop(ctx context.Context, logger *slog.Logger, st *store.Store, w *wal
 	}
 }
 
+// recorderFor returns a Recorder, or nil when metrics are off, so the API's
+// noteMetrics short-circuits instead of calling into a dead registry.
+func recorderFor(reg *metrics.Registry) api.Recorder {
+	if reg == nil || !reg.Enabled() {
+		return nil
+	}
+	return metricsRecorder{}
+}
+
+// metricsRecorder adapts the internal/metrics handles to api.Recorder. It is a
+// thin shim on purpose: the API knows the label vocabulary, the exporter knows
+// the wire format, and neither imports the other.
+type metricsRecorder struct{}
+
+func (metricsRecorder) RequestDone(class, statusClass string, seconds float64) {
+	metrics.HTTPRequests.Inc(class, statusClass)
+	metrics.HTTPDuration.Observe(seconds, class)
+}
+
+func (metricsRecorder) OrderCreated(method, status string) {
+	metrics.Orders.Inc(method, status)
+}
+
+func (metricsRecorder) PaymentProcessed(outcome, reason string) {
+	metrics.Payments.Inc(outcome, reason)
+}
+
+func (metricsRecorder) WebhookSignatureFailure(method string) {
+	metrics.WebhookFailures.Inc(method)
+}
+
+func (metricsRecorder) RateLimited(class string) {
+	metrics.RateLimited.Inc(class)
+}
+
+// metricsGuard optionally requires X-Metrics-Token. A scrape endpoint on a
+// public host leaks order volume and rail mix, so the token is a cheap way to
+// keep the numbers to the monitoring system.
+func metricsGuard(token string, next http.Handler) http.Handler {
+	if token == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Metrics-Token")), []byte(token)) != 1 {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // logRequests is the only middleware: one line per request, so a webhook
-// mystery is debuggable from the logs alone.
-func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
+// mystery is debuggable from the logs alone. When metrics are on it also
+// records the request, because the handler is the only place that sees both the
+// final status and the elapsed time.
+func logRequests(logger *slog.Logger, rec api.Recorder, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rec, r)
-		logger.Info("http", "method", r.Method, "path", r.URL.Path, "status", rec.status,
-			"dur_ms", time.Since(start).Milliseconds())
+		sr := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sr, r)
+		elapsed := time.Since(start)
+		logger.Info("http", "method", r.Method, "path", r.URL.Path, "status", sr.status,
+			"dur_ms", elapsed.Milliseconds())
+		if rec != nil {
+			rec.RequestDone(routeClass(r.URL.Path), statusClass(sr.status), elapsed.Seconds())
+		}
 	})
+}
+
+// routeClass reduces a URL to the bounded set the metrics use, so a scanner
+// probing random paths cannot grow cardinality. Order and notice ids collapse
+// into their collection class.
+func routeClass(path string) string {
+	switch {
+	case path == "/api/orders":
+		return "orders_create"
+	case strings.HasPrefix(path, "/api/orders/"):
+		return "orders_item"
+	case strings.HasPrefix(path, "/api/webhooks/"):
+		return "webhooks"
+	case path == "/api/wallet" || strings.HasPrefix(path, "/api/wallet/"):
+		return "wallet"
+	case strings.HasPrefix(path, "/api/admin/"):
+		return "admin"
+	case path == "/api/notices":
+		return "notices"
+	case path == "/api/healthz" || path == "/api/readyz":
+		return "health"
+	case strings.HasPrefix(path, "/admin"):
+		return "console"
+	case path == "/metrics":
+		return "metrics"
+	default:
+		return "other"
+	}
+}
+
+// statusClass collapses a status code to 2xx/3xx/4xx/5xx.
+func statusClass(code int) string {
+	switch {
+	case code >= 500:
+		return "5xx"
+	case code >= 400:
+		return "4xx"
+	case code >= 300:
+		return "3xx"
+	default:
+		return "2xx"
+	}
 }
 
 type statusRecorder struct {

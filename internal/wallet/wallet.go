@@ -105,8 +105,11 @@ func WithDiscountBPS(bps int64) Option {
 // WithCurrency sets the settlement currency (default PKR).
 func WithCurrency(cur string) Option {
 	return func(w *Wallet) {
-		if cur != "" {
-			w.currency = cur
+		// A blank or whitespace-only value means "keep the default"; an
+		// explicitly blank currency would otherwise create a ledger whose rows
+		// no query can find.
+		if c := strings.ToUpper(strings.TrimSpace(cur)); c != "" {
+			w.currency = c
 		}
 	}
 }
@@ -124,6 +127,9 @@ func New(s *store.Store, opts ...Option) *Wallet {
 	}
 	return w
 }
+
+// Currency is the ledger currency every row of this wallet is written in.
+func (w *Wallet) Currency() string { return w.currency }
 
 // DiscountBPS exposes the configured prepay discount.
 func (w *Wallet) DiscountBPS() int64 { return w.discount }
@@ -426,14 +432,21 @@ func (w *Wallet) Adjust(ctx context.Context, userID string, delta int64, idemKey
 			return nil, ErrInsufficientFunds
 		}
 	}
-	if _, err := w.insert(ctx, Ledger{
+	_, err := w.insert(ctx, Ledger{
 		UserID:         uid,
 		Kind:           KindAdjust,
 		AmountMinor:    delta,
 		Currency:       w.currency,
 		IdempotencyKey: idemKey,
 		Memo:           memo,
-	}, "adjust:"+uid+":"+idemKey); err != nil {
+	}, "adjust:"+uid+":"+idemKey)
+	if err != nil {
+		if errors.Is(err, store.ErrDuplicate) {
+			// Replay of an adjustment: the ledger already holds it, so report
+			// the current balance instead of failing. Matches Topup's contract
+			// and means an operator's double-click cannot credit twice.
+			return w.Balance(ctx, userID)
+		}
 		return nil, err
 	}
 	return w.Balance(ctx, userID)

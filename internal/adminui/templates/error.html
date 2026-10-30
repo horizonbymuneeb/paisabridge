@@ -1,0 +1,15 @@
+{{define "content.error"}}{{$d := .Data}}
+<div class="phead">
+  <div>
+    <h1>{{$d.Heading}}</h1>
+    <p class="lede">{{$d.Message}}</p>
+  </div>
+</div>
+<div class="panel">
+  <div class="empty">
+    <strong>{{$d.Heading}}</strong>
+    {{$d.Hint}}
+  </div>
+</div>
+<p class="sm"><a href="/">Back to the dashboard</a> · <a href="/orders">All orders</a></p>
+{{end}}

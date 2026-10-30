@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +15,7 @@ import (
 	"github.com/horizonbymuneeb/paisabridge/internal/match"
 	"github.com/horizonbymuneeb/paisabridge/internal/store"
 	"github.com/horizonbymuneeb/paisabridge/internal/types"
+	"github.com/horizonbymuneeb/paisabridge/internal/unique"
 	"github.com/horizonbymuneeb/paisabridge/internal/version"
 	"github.com/horizonbymuneeb/paisabridge/internal/wallet"
 )
@@ -30,8 +34,43 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"time":    s.now().UTC().Format(time.RFC3339Nano),
 		"db":      "ok",
 	}
+	// Liveness only: this endpoint answers "is the process serving?" so an
+	// orchestrator restarts a wedged container. It deliberately does NOT fail on
+	// a database problem - restarting the process would not fix a missing disk,
+	// and a restart loop hides the real fault. Readiness (/api/readyz) is the
+	// endpoint that de-rotates a broken instance.
 	if err := s.cfg.Store.Ping(ctx); err != nil {
 		resp["status"], resp["db"] = "degraded", "error: "+err.Error()
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// ---------------------------------------------------------------------------
+// readyz
+// ---------------------------------------------------------------------------
+
+// handleReadyz is the readiness probe, separate from liveness. A process can be
+// healthy (healthz: it is running) while being unable to serve (readyz: the
+// database it needs is gone). Load balancers should take a failing readiness
+// out of rotation and leave the process alone, which is why the two answers are
+// different endpoints rather than one flag.
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := ctx(r)
+	defer cancel()
+
+	checks := map[string]string{"db": "ok"}
+	ready := true
+	if err := s.cfg.Store.Ping(ctx); err != nil {
+		checks["db"] = "error: " + err.Error()
+		ready = false
+	}
+	resp := map[string]any{
+		"ready":   ready,
+		"checks":  checks,
+		"version": version.Get(),
+		"time":    s.now().UTC().Format(time.RFC3339Nano),
+	}
+	if !ready {
 		writeJSON(w, http.StatusServiceUnavailable, resp)
 		return
 	}
@@ -52,6 +91,10 @@ type createOrderRequest struct {
 	CustomerEmail string `json:"customer_email"`
 	CustomerPhone string `json:"customer_phone"`
 	TTLSeconds    int64  `json:"ttl_seconds"`
+	// IdempotencyKey is optional. When present, retrying the same key from
+	// the same buyer returns the order the first attempt created instead of
+	// creating (and reserving an amount for) a second one.
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +134,18 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := ctx(r)
 	defer cancel()
 
+	// Without a key this is the plain create path; with one, the key decides
+	// whether we create, replay or refuse.
+	key := strings.TrimSpace(req.IdempotencyKey)
+	if key == "" {
+		s.createOrder(ctx, w, req, method, ttl)
+		return
+	}
+	s.createOrderIdempotent(ctx, w, req, method, ttl, key)
+}
+
+// createOrder performs the actual insert and writes the 201 response.
+func (s *Server) createOrder(ctx context.Context, w http.ResponseWriter, req createOrderRequest, method types.Method, ttl time.Duration) *types.Order {
 	ord, err := s.cfg.Store.CreateOrder(ctx, store.CreateOrderInput{
 		ProductID:     req.ProductID,
 		ProductName:   req.ProductName,
@@ -105,14 +160,178 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicate) || strings.Contains(err.Error(), "window exhausted") {
 			writeErr(w, http.StatusConflict, "no_unique_amount", err.Error())
-			return
+			return nil
 		}
 		s.log.Error("create order", "err", err)
 		writeErr(w, http.StatusInternalServerError, "internal", "could not create order")
-		return
+		return nil
 	}
 	s.log.Info("order created", "id", ord.ID, "amount", ord.Amount, "method", ord.Method)
+	s.noteMetrics(func(m Recorder) { m.OrderCreated(string(ord.Method), string(ord.Status)) })
 	writeJSON(w, http.StatusCreated, ord)
+	return ord
+}
+
+// ---------------------------------------------------------------------------
+// order idempotency
+// ---------------------------------------------------------------------------
+
+// errIdemBusy is returned by withIdempotencyKey when another request holds the
+// key and has not finished. It is retried a few times and then answered with
+// 409: the client's own request is still in progress, so the correct action is
+// to retry the same key shortly, not to invent a new one.
+var errIdemBusy = errors.New("api: idempotency key in flight")
+
+// idemRetryWindow bounds how long a request waits for a concurrent request
+// with the same key to finish. It is deliberately short: an order insert is a
+// few milliseconds, and a caller waiting here is holding a connection open.
+const idemRetryWindow = 1500 * time.Millisecond
+
+// idemRetryStep is the delay between two attempts inside idemRetryWindow.
+const idemRetryStep = 25 * time.Millisecond
+
+// idemStaleAfter is how long a "pending" claim may sit before another request
+// is allowed to take it over. It must exceed the time an order insert can
+// plausibly take, so it only fires for a crashed or hung request.
+const idemStaleAfter = 10 * time.Second
+
+// createOrderIdempotent implements POST /api/orders with an idempotency_key.
+//
+// Semantics (documented in docs/API.md):
+//
+//	same key + same buyer + same body    -> 200 with the original order
+//	same key + same buyer + other body   -> 409 idempotency_conflict
+//	key still being processed            -> 409 idempotency_in_flight
+//
+// The buyer scope is the request's user_id, or a single shared scope when the
+// request has none. Scoping by user is what stops one buyer's key from being
+// answered with (or used to probe for) another buyer's order.
+func (s *Server) createOrderIdempotent(ctx context.Context, w http.ResponseWriter, req createOrderRequest, method types.Method, ttl time.Duration, key string) {
+	scope := req.UserID
+	if scope == "" {
+		// Anonymous orders share one scope. The rate limiter is the guard
+		// against key guessing there; the worst a guess can do is learn an
+		// order id for a body hash it must already know.
+		scope = "anon"
+	}
+	hash := hashFor(req, method, ttl)
+	deadline := s.now().Add(idemRetryWindow)
+
+	for {
+		outcome, rec, err := s.cfg.Store.ClaimIdempotencyKey(ctx, scope, key, hash, idemStaleAfter)
+		switch {
+		case errors.Is(err, store.ErrIdemInFlight):
+			if s.now().After(deadline) {
+				s.log.Info("idempotency key busy", "scope", scope, "key_len", len(key))
+				w.Header().Set("Retry-After", "1")
+				writeErr(w, http.StatusConflict, "idempotency_in_flight",
+					"another request with this idempotency_key is still being processed; retry with the same key")
+				return
+			}
+			select {
+			case <-ctx.Done():
+				writeErr(w, http.StatusRequestTimeout, "request_cancelled", ctx.Err().Error())
+				return
+			case <-time.After(idemRetryStep):
+			}
+			continue
+		case err != nil:
+			s.log.Error("idempotency claim", "err", err)
+			writeErr(w, http.StatusInternalServerError, "internal", "could not check idempotency_key")
+			return
+		}
+
+		if outcome == store.IdemReplayed {
+			if rec.RequestHash != hash {
+				writeErr(w, http.StatusConflict, "idempotency_conflict",
+					"this idempotency_key was already used with different request content")
+				return
+			}
+			s.replayOrder(ctx, w, rec.OrderID, key)
+			return
+		}
+
+		// We own the key. Create, then record the result. If the record write
+		// fails the order still exists; releasing the claim would let the
+		// client retry into a second order, so the claim is completed anyway
+		// and the failure is only logged.
+		ord := s.createOrder(ctx, w, req, method, ttl)
+		if ord == nil {
+			// Nothing was created (4xx/5xx already written): free the key so
+			// the client can retry the same request.
+			if err := s.cfg.Store.AbortIdempotencyKey(ctx, scope, key, hash); err != nil {
+				s.log.Error("idempotency abort", "err", err)
+			}
+			return
+		}
+		if _, err := s.cfg.Store.CompleteIdempotencyKey(ctx, scope, key, hash, ord.ID); err != nil {
+			s.log.Error("idempotency complete", "order", ord.ID, "err", err)
+		}
+		return
+	}
+}
+
+// replayOrder answers a retried request with the order its key already
+// produced. If the order has vanished (pruned database, manual delete) the
+// client is told so rather than being handed a new order under the same key.
+func (s *Server) replayOrder(ctx context.Context, w http.ResponseWriter, orderID, key string) {
+	ord, err := s.cfg.Store.Order(ctx, orderID)
+	if err != nil {
+		s.log.Error("idempotent replay: stored order missing", "order", orderID, "err", err)
+		writeErr(w, http.StatusConflict, "idempotency_conflict",
+			"idempotency_key is bound to an order that no longer exists")
+		return
+	}
+	s.log.Info("order replayed from idempotency key", "id", ord.ID, "key_len", len(key))
+	writeJSON(w, http.StatusOK, ord)
+}
+
+// OrderHashInput is the normalised content of a create-order request: every
+// field that changes the order produced, with defaults already applied and
+// nothing else (not the idempotency key, not field order).
+type OrderHashInput struct {
+	ProductID     string `json:"product_id"`
+	ProductName   string `json:"product_name"`
+	CatalogPrice  int64  `json:"catalog_price_minor"`
+	Currency      string `json:"currency"`
+	Method        string `json:"method"`
+	UserID        string `json:"user_id"`
+	CustomerEmail string `json:"customer_email"`
+	CustomerPhone string `json:"customer_phone"`
+	TTLSeconds    int64  `json:"ttl_seconds"`
+}
+
+// OrderRequestHash is the digest that decides whether two requests carrying
+// the same idempotency key are "the same request". It is exported so tests and
+// integrations can reproduce it exactly.
+func OrderRequestHash(in OrderHashInput) string {
+	in.Currency = strings.ToUpper(strings.TrimSpace(in.Currency))
+	b, _ := json.Marshal(in)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// hashFor normalises a decoded request and hashes it.
+//
+// An optional field omitted in one attempt and sent with its default in the
+// other hashes the same, so a client that fixes its retry by being explicit
+// still replays instead of conflicting.
+func hashFor(req createOrderRequest, method types.Method, ttl time.Duration) string {
+	cur := strings.ToUpper(strings.TrimSpace(req.Currency))
+	if cur == "" {
+		cur = unique.CurrencyPKR
+	}
+	return OrderRequestHash(OrderHashInput{
+		ProductID:     req.ProductID,
+		ProductName:   req.ProductName,
+		CatalogPrice:  req.CatalogPrice,
+		Currency:      cur,
+		Method:        string(method),
+		UserID:        req.UserID,
+		CustomerEmail: req.CustomerEmail,
+		CustomerPhone: req.CustomerPhone,
+		TTLSeconds:    int64(ttl / time.Second),
+	})
 }
 
 func (s *Server) handleGetOrder(w http.ResponseWriter, r *http.Request) {
@@ -274,6 +493,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	notice, err := ad.VerifyWebhook(r)
 	if err != nil {
 		// Signature failures are 401 and never reach the matcher.
+		s.noteMetrics(func(m Recorder) { m.WebhookSignatureFailure(name) })
 		writeErr(w, http.StatusUnauthorized, "invalid_signature", err.Error())
 		return
 	}
@@ -298,6 +518,12 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "internal", "could not process payment")
 		return
 	}
+
+	outcome := "unmatched"
+	if out.Matched {
+		outcome = "matched"
+	}
+	s.noteMetrics(func(m Recorder) { m.PaymentProcessed(outcome, out.Reason) })
 
 	resp := webhookResponse{Matched: out.Matched, OrderID: out.OrderID, Reason: out.Reason, Credited: out.Matched}
 	if out.Matched && out.OrderID != "" {

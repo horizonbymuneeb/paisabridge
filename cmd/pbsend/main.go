@@ -21,6 +21,7 @@ import (
 
 	"github.com/horizonbymuneeb/paisabridge/internal/adapters/notice"
 	"github.com/horizonbymuneeb/paisabridge/internal/types"
+	"github.com/horizonbymuneeb/paisabridge/internal/version"
 )
 
 func main() {
@@ -37,7 +38,20 @@ func main() {
 		id         = flag.String("id", "", "envelope id (default: derived from txn)")
 		verbose    = flag.Bool("v", false, "print the envelope and response body")
 	)
+	showVersion := flag.Bool("version", false, "print build identity and exit")
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, "pbsend - mint a signed notice and POST it to a gateway")
+		fmt.Fprintln(os.Stderr, "The envelope signature covers exact bytes, so this tool (or the same")
+		fmt.Fprintln(os.Stderr, "function from a custom relay) is the only safe way to produce a notice.")
+		fmt.Fprintln(os.Stderr, "Flags:")
+		flag.PrintDefaults()
+	}
 	flag.Parse()
+	if *showVersion {
+		v := version.Get()
+		fmt.Printf("pbsend %s (%s %s/%s)\n", v.Version, v.Go, v.OS, v.Arch)
+		return
+	}
 	if *amount <= 0 || *txn == "" {
 		fmt.Fprintln(os.Stderr, "pbsend: -amount and -txn are required")
 		os.Exit(2)

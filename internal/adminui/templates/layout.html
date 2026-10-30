@@ -1,0 +1,64 @@
+{{/* Layout: every page defines "content" and is rendered through this shell.
+     Only the third-party interface of the page model lives here: no data
+     access, no logic beyond the nav state. */}}
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{.Title}} · paisabridge admin</title>
+<link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">
+      <span class="name">paisabridge</span>
+      <span class="sub">operator console</span>
+    </div>
+    <nav class="nav" aria-label="Sections">
+      <a href="/"{{if eq .Nav "dashboard"}} aria-current="page"{{end}}>Dashboard</a>
+      <a href="/queue"{{if eq .Nav "queue"}} aria-current="page"{{end}}>
+        <span>Review queue</span>
+        {{if .Review}}<span class="count">{{.Review}}</span>{{end}}
+      </a>
+      <a href="/orders"{{if eq .Nav "orders"}} aria-current="page"{{end}}>Orders</a>
+      <a href="/notices"{{if eq .Nav "notices"}} aria-current="page"{{end}}>Notices</a>
+    </nav>
+    <div class="side-foot">
+      <form method="post" action="/logout" class="logout">
+        <input type="hidden" name="csrf" value="{{.Token}}">
+        <button class="btn btn-quiet" type="submit">Sign out</button>
+      </form>
+    </div>
+  </aside>
+  <main class="main" id="main">
+    {{body .}}
+    <div class="foot">
+      <span>paisabridge {{.Version}}</span>
+      <span>{{.Now}}</span>
+      <span>Manual review leaves an event in the order journal.</span>
+    </div>
+  </main>
+</div>
+{{if eq .Nav "queue"}}{{template "confirm" .}}{{end}}
+</body>
+</html>
+{{end}}
+
+{{/* One small script, only for the destructive-action confirmation. The forms
+     submit normally without it; this just asks first. */}}
+{{define "confirm"}}<script>
+(function () {
+  var btns = document.querySelectorAll('button[data-confirm]');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener('click', function (e) {
+      if (!window.confirm(this.getAttribute('data-confirm'))) {
+        e.preventDefault();
+      }
+    });
+  }
+})();
+</script>{{end}}

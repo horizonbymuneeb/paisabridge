@@ -36,6 +36,11 @@ secret and an admin token.
 | `PB_TELEGRAM_API_BASE` | `https://api.telegram.org` | override for a relay or a test double |
 | `PB_OUTBOUND_WEBHOOK_URL` | — | push every order transition to your storefront |
 | `PB_OUTBOUND_SECRET` | — | HMAC key for outbound deliveries (`X-PB-Signature`) |
+| `PB_TRUST_PROXY` | `false` | take the client IP from `X-Forwarded-For`; only behind a proxy you control |
+| `PB_METRICS` | `false` | enable `GET /metrics` (Prometheus text format) |
+| `PB_METRICS_TOKEN` | — | require `X-Metrics-Token` on scrapes |
+| `PB_ADMIN_ADDR` | — | serve the operator console on this address (own listener) |
+| `PB_ADMIN_INSECURE_COOKIE` | derived | drop `Secure` on the console cookie; sets itself when `PB_PUBLIC_URL` is plain http |
 
 A rail with no secret is skipped at boot and its webhook route answers
 `no_adapter`. Booting with zero rails is an error unless `PB_DEV=true`.
@@ -69,6 +74,16 @@ location /api/ {
 
 Terminate TLS at the proxy. The Caddy config the project ships is in
 `deploy/Caddyfile`.
+
+## Health endpoints
+
+| Endpoint | Question it answers | Wire it to |
+|----------|--------------------|-----------|
+| `GET /api/healthz` | is the process serving? (never fails on the database) | container restart / `Restart=always` |
+| `GET /api/readyz` | can it actually serve payments? (`503` when the DB is gone) | load balancer |
+
+Keeping them apart stops a missing disk from causing a restart loop, and stops a
+wedged process from staying in rotation.
 
 ## Backups
 

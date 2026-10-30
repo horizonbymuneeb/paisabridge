@@ -1,0 +1,27 @@
+{{define "login"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Sign in · paisabridge admin</title>
+<link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+<main class="login">
+  <form class="login-card" method="post" action="/login" autocomplete="off">
+    <h1>paisabridge operator console</h1>
+    <p class="lede">Sign in with the admin token to review payments that need a human decision.</p>
+    <input type="hidden" name="next" value="{{.Data.Next}}">
+    {{if .Data.Error}}
+    <div class="banner banner-bad" role="alert">{{.Data.Error}}</div>
+    {{end}}
+    <label for="token">Admin token</label>
+    <input id="token" type="password" name="token" value="" autocomplete="current-password" autofocus required>
+    <button class="btn btn-primary" type="submit">Sign in</button>
+    <p class="note">{{.Data.Note}} It is sent only to this server and is never stored in the page or the URL.</p>
+  </form>
+</main>
+</body>
+</html>
+{{end}}

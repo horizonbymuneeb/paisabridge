@@ -70,12 +70,24 @@ type Config struct {
 	Backoff func(attempt int) time.Duration
 	// Logf receives one line per attempt. Nil silences it.
 	Logf func(format string, args ...any)
+	// Metrics, when set, is called once per Notify with the outcome:
+	// "delivered" (first attempt), "retried" (eventually, after a retry),
+	// "failed" (exhausted) or "permanent" (4xx, never retried). It is a
+	// callback rather than an import so internal/outbound stays testable
+	// without the metrics registry; cmd wires metrics.Outbound here.
+	Metrics func(event, result string)
 }
 
 // Sender delivers events with bounded exponential backoff.
 type Sender struct {
 	cfg    Config
 	client *http.Client
+
+	// sink parks a delivery whose retries are exhausted (see deadletter.go).
+	// Nil means "log only", which is the behaviour before dead-lettering
+	// existed; UseDeadLetter turns it on.
+	sink  Sink
+	codec DeadLetterCodec
 }
 
 // New validates the config. A Sender with an empty URL is a no-op sender so
@@ -122,17 +134,31 @@ func (s *Sender) Notify(ctx context.Context, event, deliveryID string, order any
 	if err != nil {
 		return fmt.Errorf("outbound: marshal order: %w", err)
 	}
-	var lastErr error
+	var (
+		lastErr     error
+		lastBody    []byte
+		lastAttempt int
+	)
 	for attempt := 1; attempt <= s.cfg.MaxAttempts; attempt++ {
 		body, err := json.Marshal(Payload{Event: event, DeliveryID: deliveryID, Order: raw, Attempt: attempt})
 		if err != nil {
 			return fmt.Errorf("outbound: marshal payload: %w", err)
 		}
+		lastBody, lastAttempt = body, attempt
 		lastErr = s.deliver(ctx, event, deliveryID, body, attempt)
 		if lastErr == nil {
+			if attempt == 1 {
+				s.result(event, "delivered")
+			} else {
+				s.result(event, "retried")
+			}
 			return nil
 		}
 		if errors.Is(lastErr, ErrPermanent) {
+			// A 4xx is the receiver saying "never". Retrying or parking it
+			// would only replay a request the receiver already refused, so
+			// it is counted and returned, not dead-lettered.
+			s.result(event, "permanent")
 			return lastErr
 		}
 		if attempt == s.cfg.MaxAttempts {
@@ -140,11 +166,38 @@ func (s *Sender) Notify(ctx context.Context, event, deliveryID string, order any
 		}
 		select {
 		case <-ctx.Done():
+			// Shutdown: the process is going away, so the sink is the only
+			// way this event survives. Park it rather than losing it.
+			s.result(event, "failed")
+			if perr := s.park(context.WithoutCancel(ctx), event, deliveryID, lastBody, lastAttempt, ctx.Err()); perr != nil && s.cfg.Logf != nil {
+				s.cfg.Logf("outbound %s delivery=%s not dead-lettered: %v", event, deliveryID, perr)
+			}
 			return ctx.Err()
 		case <-time.After(s.cfg.Backoff(attempt)):
 		}
 	}
-	return fmt.Errorf("outbound: giving up after %d attempts: %w", s.cfg.MaxAttempts, lastErr)
+	return s.exhausted(ctx, event, deliveryID, lastBody, lastAttempt, lastErr)
+}
+
+// exhausted is the path a delivery takes when every retry failed: count it,
+// park it if a sink is installed, and return a *DeliveryError that says which
+// of those happened.
+func (s *Sender) exhausted(ctx context.Context, event, deliveryID string, body []byte, attempts int, cause error) error {
+	s.result(event, "failed")
+	derr := &DeliveryError{Event: event, DeliveryID: deliveryID, Attempts: attempts, Err: cause}
+	if perr := s.park(ctx, event, deliveryID, body, attempts, cause); perr != nil {
+		derr.SinkErr = perr
+	} else if s.sink != nil {
+		derr.DeadLettered = true
+	}
+	return derr
+}
+
+// result forwards to the metrics callback when one is configured.
+func (s *Sender) result(event, result string) {
+	if s.cfg.Metrics != nil {
+		s.cfg.Metrics(event, result)
+	}
 }
 
 func (s *Sender) deliver(ctx context.Context, event, deliveryID string, body []byte, attempt int) error {

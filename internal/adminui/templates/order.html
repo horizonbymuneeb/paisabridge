@@ -1,0 +1,142 @@
+{{define "content.order"}}{{$d := .Data}}{{$o := $d.Order}}
+<div class="phead">
+  <div>
+    <h1><span class="mono">{{$o.Ref}}</span></h1>
+    <p class="lede">
+      <span class="st st-{{statusTone $o.Status}}">{{statusLabel $o.Status}}</span>
+      · {{methodLabel $o.Method}} · created {{$d.Age}} ago
+      {{if $d.Terminal}} · this order is final{{end}}
+    </p>
+  </div>
+  <div class="meta">window {{$d.Left}}</div>
+</div>
+
+<div class="section">
+  <h2>Order</h2>
+  <div class="panel">
+    <dl class="kv">
+      <dt>Order id</dt><dd class="mono">{{$o.ID}}</dd>
+      <dt>Ref</dt><dd class="mono">{{$o.Ref}}</dd>
+      <dt>Amount</dt>
+      <dd class="mono">
+        {{amount $o.Amount $o.Currency}} {{$o.Currency}}
+        <span class="faint sm">({{amountMinor $o.Amount}} minor)</span>
+      </dd>
+      <dt>Catalog price</dt>
+      <dd class="mono">
+        {{amount $o.CatalogPrice $o.Currency}} {{$o.Currency}}
+        {{if ne $o.Amount $o.CatalogPrice}}
+        <span class="faint sm">unique-amount offset {{offsetSign $d.Row.Offset}}</span>
+        {{end}}
+      </dd>
+      <dt>Method</dt><dd>{{methodLabel $o.Method}}</dd>
+      <dt>Txn ref</dt><dd class="mono">{{if $o.TxRef}}{{$o.TxRef}}{{else}}<span class="faint">not bound</span>{{end}}</dd>
+      <dt>Product</dt><dd>{{if $o.ProductName}}{{$o.ProductName}} <span class="faint sm">{{$o.ProductID}}</span>{{else}}{{$o.ProductID}}{{end}}</dd>
+      <dt>Customer</dt>
+      <dd>
+        {{if $o.CustomerEmail}}<span class="mono">{{$o.CustomerEmail}}</span>{{end}}
+        {{if $o.CustomerPhone}}<span class="mono">{{$o.CustomerPhone}}</span>{{end}}
+        {{if and (not $o.CustomerEmail) (not $o.CustomerPhone)}}<span class="faint">none recorded</span>{{end}}
+      </dd>
+      <dt>SMS OTP</dt><dd class="mono">{{if $o.SMSOTP}}{{$o.SMSOTP}}{{else}}<span class="faint">none</span>{{end}}</dd>
+      <dt>Created</dt><dd class="mono">{{stamp $o.CreatedAt}}</dd>
+      <dt>Updated</dt><dd class="mono">{{stamp $o.UpdatedAt}}</dd>
+      <dt>Expires</dt><dd class="mono">{{stamp $o.ExpiresAt}} <span class="faint sm">{{$d.Left}}</span></dd>
+    </dl>
+  </div>
+</div>
+
+{{if $d.CanAct}}
+<div class="section">
+  <h2>Decision</h2>
+  {{if and $d.Expired (eq $o.Status "review")}}
+  <div class="banner banner-warn">The payment window for this order has closed. Approving it records a late but real payment; rejecting it closes the order without fulfilment.</div>
+  {{end}}
+  <div class="panel">
+    <form class="filters" method="post" action="/queue" style="padding:12px">
+      <input type="hidden" name="csrf" value="{{$d.CSRF}}">
+      <input type="hidden" name="order_id" value="{{$o.ID}}">
+      <label class="field grow">
+        <span>Transaction reference (optional)</span>
+        <input type="text" name="txn_ref" value="" placeholder="the ref on the bank statement" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="btn-row">
+        <button class="btn btn-primary" type="submit" name="action" value="approve"
+                data-confirm="Approve {{$o.Ref}}? This marks it paid and queues delivery.">Approve</button>
+        <button class="btn" type="submit" name="action" value="reject"
+                data-confirm="Reject {{$o.Ref}}? The order is cancelled and cannot be fulfilled.">Reject</button>
+      </div>
+    </form>
+  </div>
+  <p class="sm faint">Approving moves review to verified, then verified to fulfilled, using the same state machine and journal as the JSON admin API. Binding a txn ref also marks the matching payment notice as matched.</p>
+</div>
+{{end}}
+
+<div class="section">
+  <h2>Journal <span class="hint">{{len $d.Events}} event{{if ne (len $d.Events) 1}}s{{end}}</span></h2>
+  <div class="panel">
+    {{if $d.Events}}
+    <div class="tw">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">At</th>
+            <th scope="col">From</th>
+            <th scope="col">To</th>
+            <th scope="col" class="hide-sm">Actor</th>
+            <th scope="col">Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range $d.Events}}
+          <tr>
+            <td data-label="At" class="mono nowrap">{{stamp .CreatedAt}}</td>
+            <td data-label="From" class="mono dim">{{statusLabel .FromState}}</td>
+            <td data-label="To"><span class="st st-{{statusTone .ToState}}">{{statusLabel .ToState}}</span></td>
+            <td data-label="Actor" class="mono dim hide-sm">{{.Actor}}</td>
+            <td data-label="Detail" class="dim">{{.Detail}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="empty"><strong>No events yet</strong>The journal starts at the first state change.</div>
+    {{end}}
+  </div>
+</div>
+
+{{if $d.Notices}}
+<div class="section">
+  <h2>Related inbound payments</h2>
+  <div class="panel">
+    <div class="tw">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Txn ref</th>
+            <th scope="col">Status</th>
+            <th scope="col" class="num">Amount</th>
+            <th scope="col" class="hide-sm">Sender</th>
+            <th scope="col" class="hide-xs">Received</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range $d.Notices}}
+          <tr>
+            <td data-label="Txn ref" class="mono">{{.TxnRef}}</td>
+            <td data-label="Status"><span class="st st-{{if eq .Status "matched"}}ok{{else}}warn{{end}}">{{.Status}}</span></td>
+            <td data-label="Amount" class="num mono">{{amount .Amount .Currency}} {{.Currency}}</td>
+            <td data-label="Sender" class="dim hide-sm">{{if .SenderName}}{{.SenderName}}{{else}}-{{end}}</td>
+            <td data-label="Received" class="dim hide-xs">{{stamp .ReceivedAt}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{{end}}
+
+<p class="sm"><a href="/orders">Back to all orders</a></p>
+{{end}}

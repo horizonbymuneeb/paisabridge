@@ -1,0 +1,57 @@
+{{define "content.orders"}}{{$d := .Data}}
+<div class="phead">
+  <div>
+    <h1>Orders</h1>
+    <p class="lede">Every order in the newest 500, newest first. Search matches the ref, order id, txn ref, product, email, phone or OTP.</p>
+  </div>
+  <div class="meta">{{$d.From}}–{{$d.To}} of {{$d.Total}}</div>
+</div>
+
+<form class="filters" method="get" action="">
+  <label class="field grow">
+    <span>Search</span>
+    <input type="search" name="q" value="{{$d.Q}}" placeholder="ref, txn ref, email or phone" autocomplete="off">
+  </label>
+  <label class="field">
+    <span>Status</span>
+    <select name="status">
+      <option value=""{{if eq $d.Status ""}} selected{{end}}>Any status</option>
+      {{range $d.Statuses}}
+      <option value="{{.Key}}"{{if eq $d.Status .Key}} selected{{end}}>{{.Label}} ({{.Count}})</option>
+      {{end}}
+    </select>
+  </label>
+  <div class="btn-row">
+    <button class="btn btn-primary" type="submit">Apply</button>
+    <a class="btn btn-quiet" href="/orders">Reset</a>
+  </div>
+</form>
+
+<div class="panel">
+  {{if $d.Rows}}
+  <div class="tw">
+    <table class="rows">
+      {{template "tableHead" false}}
+      <tbody>
+        {{range $d.Rows}}{{template "orderRow" .}}{{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty">
+    <strong>No orders match</strong>
+    {{if $d.Q}}Nothing contains “{{$d.Q}}”{{if $d.Status}} with that status{{end}}.{{else}}No order with that status.{{end}}
+    <a href="/orders">Clear the filters</a> to see everything.
+  </div>
+  {{end}}
+</div>
+
+{{if or $d.HasPrev $d.HasNext}}
+<div class="filters" style="margin-top:10px">
+  <div class="btn-row">
+    {{if $d.HasPrev}}<a class="btn" href="{{$d.Prev}}">Previous</a>{{end}}
+    {{if $d.HasNext}}<a class="btn" href="{{$d.Next}}">Next</a>{{end}}
+  </div>
+</div>
+{{end}}
+{{end}}

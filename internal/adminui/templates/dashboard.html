@@ -1,0 +1,75 @@
+{{define "content.dashboard"}}{{$d := .Data}}
+<div class="phead">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="lede">What arrived today and what is waiting for a human. Every manual decision is written to the order journal.</p>
+  </div>
+  <div class="meta">{{$d.Orders}} orders in scope</div>
+</div>
+
+{{template "money" $d}}
+
+<div class="section">
+  <h2>Status <span class="hint">all orders, newest 500</span></h2>
+  <div class="panel">
+    <div class="board">
+      {{range $d.Counts}}
+      <a href="/orders?status={{.Key}}">
+        <span class="k">{{.Label}}</span>
+        <span class="v">{{.Count}}</span>
+      </a>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Needs a decision</h2>
+  {{if $d.ReviewValue}}
+  <div class="panel">
+    <table>
+      <tbody>
+        <tr>
+          <td data-label="Queue"><a href="/queue">Review queue</a></td>
+          <td data-label="Orders" class="num">{{$d.Review}}</td>
+          <td data-label="Value" class="num">
+            {{range $d.ReviewValue}}<span class="mono">{{amount .Minor .Currency}} {{.Currency}}</span>{{end}}
+          </td>
+          <td data-label="Oldest" class="dim">
+            {{if $d.OldestReview}}oldest waiting {{$d.OldestAge}}{{else}}nothing waiting{{end}}
+          </td>
+        </tr>
+        <tr>
+          <td data-label="Queue"><a href="/notices">Unmatched payments</a></td>
+          <td data-label="Payments" class="num">{{$d.Unmatched}}</td>
+          <td data-label="Total" class="num dim">{{$d.Notices}} recorded</td>
+          <td data-label="Meaning" class="dim">no order matched the amount</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {{else if $d.Unmatched}}
+  <div class="panel">
+    <table>
+      <tbody>
+        <tr>
+          <td data-label="Queue"><a href="/notices">Unmatched payments</a></td>
+          <td data-label="Payments" class="num">{{$d.Unmatched}}</td>
+          <td data-label="Total" class="num dim">{{$d.Notices}} recorded</td>
+          <td data-label="Meaning" class="dim">no order matched the amount</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="panel">
+    <div class="empty">
+      <strong>Nothing is waiting</strong>
+      No order is in review and no inbound payment is unmatched.
+    </div>
+  </div>
+  {{end}}
+</div>
+
+<p class="faint sm">{{$d.MoneySource}}</p>
+{{end}}

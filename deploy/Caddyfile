@@ -1,0 +1,31 @@
+# Reverse proxy for paisabridge.
+# TLS is terminated here; the gateway itself stays on loopback.
+pb.example.com {
+	encode zstd gzip
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8080 {
+			header_up X-Forwarded-For {remote_host}
+			transport http {
+				read_timeout 20s
+			}
+		}
+	}
+
+	# Nothing else is served by the gateway itself; point this at your shop.
+	handle {
+		respond "paisabridge: point this at your storefront" 200
+	}
+
+	request_body {
+		max_size 256KB
+	}
+
+	log {
+		output file /var/log/caddy/pb.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+	}
+}
